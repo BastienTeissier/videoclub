@@ -1,0 +1,23 @@
+{
+  "name": "@repo/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'not yet configured'",
+    "build": "echo 'not yet configured'",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'not yet configured'"
+  },
+  "dependencies": {
+    "@repo/contracts": "workspace:*",
+    "@repo/db": "workspace:*",
+    "@repo/tmdb-client": "workspace:*"
+  },
+  "devDependencies": {
+    "@repo/config-typescript": "workspace:*",
+    "@repo/config-eslint": "workspace:*",
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2"
+  }
+}

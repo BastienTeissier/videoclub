@@ -1,0 +1,21 @@
+{
+  "name": "@repo/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'not yet configured'",
+    "build": "echo 'not yet configured'",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'not yet configured'"
+  },
+  "dependencies": {
+    "@repo/ui": "workspace:*",
+    "@repo/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@repo/config-typescript": "workspace:*",
+    "@repo/config-eslint": "workspace:*",
+    "typescript": "^5.8.2"
+  }
+}
