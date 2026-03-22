@@ -4,20 +4,23 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo 'not yet configured'",
+    "dev": "tsx watch src/server.ts",
     "build": "echo 'not yet configured'",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'not yet configured'"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.11",
     "@repo/contracts": "workspace:*",
     "@repo/db": "workspace:*",
-    "@repo/tmdb-client": "workspace:*"
+    "@repo/tmdb-client": "workspace:*",
+    "hono": "^4.12.8"
   },
   "devDependencies": {
-    "@repo/config-typescript": "workspace:*",
     "@repo/config-eslint": "workspace:*",
+    "@repo/config-typescript": "workspace:*",
     "@types/node": "^22.13.10",
+    "tsx": "^4.21.0",
     "typescript": "^5.8.2"
   }
 }
