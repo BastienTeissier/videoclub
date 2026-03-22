@@ -7,7 +7,9 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "db:up": "docker compose -f infra/docker/compose.yaml --env-file infra/docker/.env up -d",
+    "db:down": "docker compose -f infra/docker/compose.yaml --env-file infra/docker/.env down"
   },
   "devDependencies": {
     "turbo": "^2.8.20"
