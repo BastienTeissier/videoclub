@@ -4,18 +4,26 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo 'not yet configured'",
-    "build": "echo 'not yet configured'",
+    "dev": "next dev --turbopack --port 3000",
+    "build": "next build",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'not yet configured'"
   },
   "dependencies": {
+    "@repo/contracts": "workspace:*",
     "@repo/ui": "workspace:*",
-    "@repo/contracts": "workspace:*"
+    "next": "^16.2.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
   },
   "devDependencies": {
-    "@repo/config-typescript": "workspace:*",
     "@repo/config-eslint": "workspace:*",
+    "@repo/config-typescript": "workspace:*",
+    "@tailwindcss/postcss": "^4.2.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.2",
     "typescript": "^5.8.2"
   }
 }
