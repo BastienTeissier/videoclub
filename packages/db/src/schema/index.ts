@@ -1,2 +1,1 @@
-export {};
-// Schema definitions will be added here as tables are created
+export { movies, type Movie, type NewMovie } from "./movies.js";

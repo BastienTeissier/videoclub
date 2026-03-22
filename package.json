@@ -9,7 +9,11 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "db:up": "docker compose -f infra/docker/compose.yaml --env-file infra/docker/.env up -d",
-    "db:down": "docker compose -f infra/docker/compose.yaml --env-file infra/docker/.env down"
+    "db:down": "docker compose -f infra/docker/compose.yaml --env-file infra/docker/.env down",
+    "db:generate": "pnpm --filter @repo/db exec drizzle-kit generate",
+    "db:migrate": "pnpm --filter @repo/db exec drizzle-kit migrate",
+    "db:push": "pnpm --filter @repo/db exec drizzle-kit push",
+    "db:studio": "pnpm --filter @repo/db exec drizzle-kit studio"
   },
   "devDependencies": {
     "turbo": "^2.8.20"
