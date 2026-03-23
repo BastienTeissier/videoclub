@@ -14,6 +14,7 @@
     "db:migrate": "pnpm --filter @repo/db exec drizzle-kit migrate",
     "db:push": "pnpm --filter @repo/db exec drizzle-kit push",
     "db:studio": "pnpm --filter @repo/db exec drizzle-kit studio",
+    "db:seed": "pnpm --filter @repo/db seed",
     "depcruise": "depcruise apps packages --config .dependency-cruiser.cjs"
   },
   "devDependencies": {
