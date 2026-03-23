@@ -41,16 +41,31 @@ describe("TmdbClient", () => {
     expect(result).toEqual(payload);
   });
 
-  it("throws on non-ok response", async () => {
+  it("throws on non-ok response and includes body", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 401,
       statusText: "Unauthorized",
+      text: () => Promise.resolve('{"status_message":"Invalid API key"}'),
     });
 
     const client = new TmdbClient("bad-key");
     await expect(client.get("/movie/popular")).rejects.toThrow(
-      "TMDb API error: 401 Unauthorized"
+      'TMDb API error: 401 Unauthorized — {"status_message":"Invalid API key"}'
+    );
+  });
+
+  it("throws on non-ok response when body read fails", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      text: () => Promise.reject(new Error("body read failed")),
+    });
+
+    const client = new TmdbClient("key");
+    await expect(client.get("/movie/popular")).rejects.toThrow(
+      "TMDb API error: 500 Internal Server Error"
     );
   });
 });

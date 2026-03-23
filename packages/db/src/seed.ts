@@ -9,17 +9,20 @@ import {
 import type { TmdbMovieDetails } from "@repo/tmdb-client";
 
 const TOTAL_PAGES = 10;
+const CONCURRENCY = 5;
 
 export function mapTmdbToNewMovie(details: TmdbMovieDetails): NewMovie {
   const year = details.release_date
     ? parseInt(details.release_date.split("-")[0]!, 10)
     : null;
 
-  const directors = details.credits.crew
+  const credits = details.credits ?? { cast: [], crew: [] };
+
+  const directors = credits.crew
     .filter((c) => c.job === "Director")
     .map((c) => c.name);
 
-  const cast = details.credits.cast
+  const cast = credits.cast
     .sort((a, b) => a.order - b.order)
     .slice(0, 10)
     .map((c) => c.name);
@@ -41,6 +44,17 @@ export function mapTmdbToNewMovie(details: TmdbMovieDetails): NewMovie {
   };
 }
 
+async function processInBatches<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>
+): Promise<void> {
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    await Promise.all(batch.map(fn));
+  }
+}
+
 async function main() {
   const apiKey = process.env.TMDB_API_KEY;
   if (!apiKey) {
@@ -58,27 +72,34 @@ async function main() {
 
   let totalSeeded = 0;
 
-  for (let page = 1; page <= TOTAL_PAGES; page++) {
-    console.log(`Fetching popular movies page ${page}/${TOTAL_PAGES}...`);
-    const { results } = await getPopularMovies(tmdb, page);
+  try {
+    for (let page = 1; page <= TOTAL_PAGES; page++) {
+      console.log(`Fetching popular movies page ${page}/${TOTAL_PAGES}...`);
+      const { results } = await getPopularMovies(tmdb, page);
 
-    for (const movie of results) {
-      try {
-        const details = await getMovieDetails(tmdb, movie.id);
-        const newMovie = mapTmdbToNewMovie(details);
-        await repo.upsertFromTmdb(newMovie);
-        totalSeeded++;
-        console.log(`  ✓ ${newMovie.title} (${newMovie.year})`);
-      } catch (error) {
-        console.error(`  ✗ Failed to seed movie ${movie.id}: ${error}`);
-      }
+      await processInBatches(results, CONCURRENCY, async (movie) => {
+        try {
+          const details = await getMovieDetails(tmdb, movie.id);
+          const newMovie = mapTmdbToNewMovie(details);
+          await repo.upsertFromTmdb(newMovie);
+          totalSeeded++;
+          console.log(`  ✓ ${newMovie.title} (${newMovie.year})`);
+        } catch (error) {
+          console.error(`  ✗ Failed to seed movie ${movie.id}: ${error}`);
+        }
+      });
     }
-  }
 
-  console.log(`\nSeeded ${totalSeeded} movies.`);
-  await client.end();
+    console.log(`\nSeeded ${totalSeeded} movies.`);
+  } finally {
+    await client.end();
+  }
 }
 
-if (process.argv[1]?.includes("seed")) {
+const isMain =
+  import.meta.url === `file://${process.argv[1]}` ||
+  process.argv[1]?.endsWith("/seed.ts");
+
+if (isMain) {
   main();
 }

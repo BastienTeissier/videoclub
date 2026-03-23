@@ -21,8 +21,9 @@ export class TmdbClient {
     });
 
     if (!response.ok) {
+      const body = await response.text().catch(() => "");
       throw new Error(
-        `TMDb API error: ${response.status} ${response.statusText}`
+        `TMDb API error: ${response.status} ${response.statusText}${body ? ` — ${body}` : ""}`
       );
     }
 

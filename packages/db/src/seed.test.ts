@@ -59,10 +59,10 @@ describe("mapTmdbToNewMovie", () => {
   });
 
   it("limits cast to top 10 by order", () => {
-    const manyCast = {
+    const manyCast: TmdbMovieDetails = {
       ...sampleDetails,
       credits: {
-        ...sampleDetails.credits,
+        crew: sampleDetails.credits!.crew,
         cast: Array.from({ length: 20 }, (_, i) => ({
           name: `Actor ${i}`,
           order: i,
@@ -79,5 +79,13 @@ describe("mapTmdbToNewMovie", () => {
   it("filters only directors from crew", () => {
     const result = mapTmdbToNewMovie(sampleDetails);
     expect(result.directors).toEqual(["David Fincher"]);
+  });
+
+  it("handles missing credits gracefully", () => {
+    const { credits: _, ...noCredits } = sampleDetails;
+    const result = mapTmdbToNewMovie(noCredits as typeof sampleDetails);
+
+    expect(result.cast).toEqual([]);
+    expect(result.directors).toEqual([]);
   });
 });

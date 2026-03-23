@@ -31,7 +31,7 @@ export interface TmdbMovieDetails {
   poster_path: string | null;
   backdrop_path: string | null;
   runtime: number | null;
-  credits: {
+  credits?: {
     cast: { name: string; order: number }[];
     crew: { name: string; job: string }[];
   };
