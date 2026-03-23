@@ -8,11 +8,13 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "lint": "echo 'not yet configured'"
   },
   "devDependencies": {
     "@repo/config-typescript": "workspace:*",
     "@types/node": "^22.13.10",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "vitest": "^3.1.1"
   }
 }
