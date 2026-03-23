@@ -13,5 +13,8 @@
   "devDependencies": {
     "@repo/config-typescript": "workspace:*",
     "typescript": "^5.8.2"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
   }
 }
