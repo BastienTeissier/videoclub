@@ -4,6 +4,7 @@ import { requestId } from "./middleware/request-id.js";
 import { requestLogger } from "./middleware/logger.js";
 import { globalErrorHandler } from "./middleware/error-handler.js";
 import { health } from "./features/health/route.js";
+import { movies } from "./features/movies/route.js";
 
 type Variables = {
   requestId: string;
@@ -21,6 +22,8 @@ app.onError(globalErrorHandler);
 app.route("/health", health);
 
 const api = new Hono();
+api.route("/movies", movies);
+
 app.route("/api/v1", api);
 
 export { app, api };
