@@ -18,7 +18,8 @@
   },
   "devDependencies": {
     "dependency-cruiser": "^17.3.9",
-    "turbo": "^2.8.20"
+    "turbo": "^2.8.20",
+    "vitest": "^4.1.0"
   },
   "packageManager": "pnpm@10.6.5"
 }

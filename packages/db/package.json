@@ -8,13 +8,18 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'not yet configured'"
+    "lint": "echo 'not yet configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@repo/config-typescript": "workspace:*",
+    "@testcontainers/postgresql": "^11.13.0",
     "@types/node": "^22.13.10",
     "drizzle-kit": "^0.31.10",
-    "typescript": "^5.8.2"
+    "testcontainers": "^11.13.0",
+    "typescript": "^5.8.2",
+    "vitest": "^4.1.0"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.1",
