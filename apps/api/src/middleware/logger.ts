@@ -6,6 +6,12 @@ export const requestLogger = createMiddleware(async (c, next) => {
   const ms = Date.now() - start;
   const requestId = c.get("requestId") ?? "-";
   console.log(
-    `${c.req.method} ${c.req.path} ${c.res.status} ${ms}ms [${requestId}]`
+    JSON.stringify({
+      method: c.req.method,
+      path: c.req.path,
+      status: c.res.status,
+      duration: ms,
+      requestId,
+    })
   );
 });
