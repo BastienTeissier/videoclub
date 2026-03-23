@@ -7,7 +7,7 @@
     "dev": "next dev --turbopack --port 3000",
     "build": "next build",
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'not yet configured'"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@repo/contracts": "workspace:*",
@@ -22,6 +22,7 @@
     "@tailwindcss/postcss": "^4.2.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "eslint": "^9.22.0",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.8.2"

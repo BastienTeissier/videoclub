@@ -32,7 +32,7 @@ export function MovieSearch() {
         if (!cancelled) {
           setResults(data.results);
         }
-      } catch (err) {
+      } catch (_err) {
         if (!cancelled) {
           setError("Failed to search movies");
         }

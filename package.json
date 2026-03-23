@@ -13,9 +13,11 @@
     "db:generate": "pnpm --filter @repo/db exec drizzle-kit generate",
     "db:migrate": "pnpm --filter @repo/db exec drizzle-kit migrate",
     "db:push": "pnpm --filter @repo/db exec drizzle-kit push",
-    "db:studio": "pnpm --filter @repo/db exec drizzle-kit studio"
+    "db:studio": "pnpm --filter @repo/db exec drizzle-kit studio",
+    "depcruise": "depcruise apps packages --config .dependency-cruiser.cjs"
   },
   "devDependencies": {
+    "dependency-cruiser": "^17.3.9",
     "turbo": "^2.8.20"
   },
   "packageManager": "pnpm@10.6.5"
