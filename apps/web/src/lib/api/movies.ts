@@ -1,5 +1,5 @@
 import type { MovieSearchResponse } from "@repo/contracts";
-import { apiFetch } from "./client.js";
+import { apiFetch } from "./client";
 
 export async function searchMovies(
   query: string

@@ -3,9 +3,9 @@
 import { useState, useEffect } from "react";
 import { Input } from "@repo/ui";
 import type { MovieDto } from "@repo/contracts";
-import { searchMovies } from "@/lib/api/movies.js";
-import { useDebounce } from "@/hooks/use-debounce.js";
-import { MovieCard } from "./movie-card.js";
+import { searchMovies } from "@/lib/api/movies";
+import { useDebounce } from "@/hooks/use-debounce";
+import { MovieCard } from "./movie-card";
 
 export function MovieSearch() {
   const [query, setQuery] = useState("");
