@@ -78,7 +78,7 @@ export async function runOrchestrator({
         const toolCallRecord = await runs.createToolCall({
           runId: run.id,
           toolName: tc.toolName,
-          input: tc.args,
+          input: tc.input,
         });
 
         const toolResult = step.toolResults.find(
@@ -87,13 +87,13 @@ export async function runOrchestrator({
 
         if (toolResult) {
           await runs.completeToolCall(toolCallRecord.id, {
-            output: toolResult.result,
+            output: toolResult.output,
             durationMs: 0,
           });
           toolResults.push({
             toolName: tc.toolName,
-            input: tc.args,
-            output: toolResult.result,
+            input: tc.input,
+            output: toolResult.output,
           });
         }
       }

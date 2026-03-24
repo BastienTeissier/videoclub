@@ -1,3 +1,4 @@
+import type { Column } from "drizzle-orm";
 import { ilike, eq, and, desc, sql, type SQL } from "drizzle-orm";
 import { movies, type NewMovie } from "../schema/movies.js";
 import type { Database } from "../client/index.js";
@@ -10,7 +11,7 @@ interface SearchStructuredParams {
   year?: number;
 }
 
-function arrayIlike(column: SQL, value: string): SQL {
+function arrayIlike(column: Column, value: string): SQL {
   return sql`EXISTS (SELECT 1 FROM unnest(${column}) el WHERE el ILIKE ${`%${value}%`})`;
 }
 

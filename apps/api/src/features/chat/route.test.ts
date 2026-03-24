@@ -28,7 +28,7 @@ describe("POST /api/v1/chat", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as { sessionId: string; response: string };
     expect(body.sessionId).toBe("00000000-0000-0000-0000-000000000001");
     expect(body.response).toBe("Here are some movies");
   });
