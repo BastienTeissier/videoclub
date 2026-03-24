@@ -74,4 +74,61 @@ describe("moviesRepository", () => {
     const results = await repo.searchByTitle("NonExistentMovie12345");
     expect(results).toHaveLength(0);
   });
+
+  it("searchStructured by director returns matching movies", async () => {
+    const repo = moviesRepository(db);
+
+    await repo.upsertFromTmdb({
+      tmdbId: 100,
+      title: "Jaws",
+      year: 1975,
+      genres: ["Thriller"],
+      directors: ["Steven Spielberg"],
+      cast: ["Roy Scheider"],
+      popularity: 80,
+      synopsis: null,
+      runtime: null,
+      language: null,
+      posterUrl: null,
+      backdropUrl: null,
+      releaseDate: null,
+    });
+
+    const results = await repo.searchStructured({ director: "Spielberg" });
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results.some((m) => m.title === "Jaws")).toBe(true);
+  });
+
+  it("searchStructured combines title + genre with AND", async () => {
+    const repo = moviesRepository(db);
+
+    await repo.upsertFromTmdb({
+      tmdbId: 200,
+      title: "Blade Runner",
+      year: 1982,
+      genres: ["Science Fiction"],
+      directors: ["Ridley Scott"],
+      cast: ["Harrison Ford"],
+      popularity: 70,
+      synopsis: null,
+      runtime: null,
+      language: null,
+      posterUrl: null,
+      backdropUrl: null,
+      releaseDate: null,
+    });
+
+    const results = await repo.searchStructured({
+      title: "Blade",
+      genre: "Science Fiction",
+    });
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results.some((m) => m.title === "Blade Runner")).toBe(true);
+
+    const noResults = await repo.searchStructured({
+      title: "Blade",
+      genre: "Comedy",
+    });
+    expect(noResults).toHaveLength(0);
+  });
 });
