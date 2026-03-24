@@ -1,74 +1,73 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, type FormEvent } from "react";
 import { Input } from "@repo/ui";
 import type { MovieDto } from "@repo/contracts";
-import { searchMovies } from "@/lib/api/movies";
-import { useDebounce } from "@/hooks/use-debounce";
+import { chatSearch } from "@/lib/api/chat";
 import { MovieCard } from "./movie-card";
 
 export function MovieSearch() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<MovieDto[]>([]);
+  const [response, setResponse] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const debouncedQuery = useDebounce(query, 300);
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
 
-  useEffect(() => {
-    if (!debouncedQuery.trim()) {
-      setResults([]);
-      setError(null);
-      return;
-    }
+    const trimmed = query.trim();
+    if (!trimmed) return;
 
-    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setResponse(null);
+    setResults([]);
 
-    async function fetchResults() {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await searchMovies(debouncedQuery);
-        if (!cancelled) {
-          setResults(data.results);
-        }
-      } catch (_err) {
-        if (!cancelled) {
-          setError("Failed to search movies");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
+    try {
+      const data = await chatSearch(trimmed);
+      setResponse(data.response);
+
+      const movies: MovieDto[] = [];
+      for (const tr of data.toolResults ?? []) {
+        if (tr.toolName === "search_movies" && Array.isArray(tr.output)) {
+          movies.push(...(tr.output as MovieDto[]));
         }
       }
+      setResults(movies);
+    } catch (_err) {
+      setError("Failed to search movies");
+    } finally {
+      setLoading(false);
     }
-
-    fetchResults();
-    return () => {
-      cancelled = true;
-    };
-  }, [debouncedQuery]);
+  }
 
   return (
     <div className="w-full max-w-2xl mx-auto">
-      <Input
-        type="text"
-        placeholder="what do you want to watch?"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        className="w-full"
-      />
+      <form onSubmit={handleSubmit}>
+        <Input
+          type="text"
+          placeholder="what do you want to watch?"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="w-full"
+        />
+      </form>
 
       <div className="mt-6">
         {loading && (
-          <p className="text-sm text-muted">Searching...</p>
+          <p className="text-sm text-muted">Thinking...</p>
         )}
 
         {error && (
           <p className="text-sm text-destructive">{error}</p>
         )}
 
-        {!loading && !error && debouncedQuery && results.length === 0 && (
+        {response && !loading && (
+          <p className="text-sm text-muted mb-4">{response}</p>
+        )}
+
+        {!loading && !error && !response && query && results.length === 0 && (
           <p className="text-sm text-muted">No movies found</p>
         )}
 
