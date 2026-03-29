@@ -1,4 +1,4 @@
-import { streamText, stepCountIs, type CoreMessage } from "ai";
+import { streamText, stepCountIs, type ModelMessage } from "ai";
 import { getModel } from "../../lib/ai-provider.js";
 import { createSearchMoviesTool } from "../../features/tools/search-movies.js";
 import { createSearchTmdbTool } from "../../features/tools/search-tmdb.js";
@@ -26,7 +26,7 @@ interface OrchestratorParams {
   db: Database;
   sessionId?: string;
   userId: string;
-  messages: CoreMessage[];
+  messages: ModelMessage[];
 }
 
 export async function runOrchestrator({
@@ -49,7 +49,7 @@ export async function runOrchestrator({
   }
 
   // Persist user messages from incoming
-  const lastUserMessage = incomingMessages.findLast((m) => m.role === "user");
+  const lastUserMessage = [...incomingMessages].reverse().find((m) => m.role === "user");
   if (lastUserMessage && typeof lastUserMessage.content === "string") {
     await chatMessages.create({
       sessionId: session.id,
@@ -58,16 +58,16 @@ export async function runOrchestrator({
     });
   }
 
-  // Load conversation history from DB and convert to CoreMessage[]
+  // Load conversation history from DB and convert to ModelMessage[]
   const previousMessages = await chatMessages.findBySessionId(session.id);
-  const historyMessages: CoreMessage[] = previousMessages
+  const historyMessages: ModelMessage[] = previousMessages
     .slice(0, -1) // exclude the just-inserted user message (it's in incomingMessages)
     .map((m) => ({
       role: m.role as "user" | "assistant",
       content: m.content ?? "",
     }));
 
-  const allMessages: CoreMessage[] = [...historyMessages, ...incomingMessages];
+  const allMessages: ModelMessage[] = [...historyMessages, ...incomingMessages];
 
   // Create agent run
   const userMsg = previousMessages[previousMessages.length - 1];

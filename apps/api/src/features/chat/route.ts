@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 import { chatRequestSchema } from "@repo/contracts";
 import { db } from "../../lib/db.js";
 import { runOrchestrator } from "../../services/agents/orchestrator.js";
@@ -19,7 +19,7 @@ chat.post("/", async (c) => {
   }
 
   const userId = c.get("userId");
-  const messages: CoreMessage[] = [
+  const messages: ModelMessage[] = [
     { role: "user", content: parsed.data.message },
   ];
 

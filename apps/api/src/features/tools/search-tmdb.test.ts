@@ -110,7 +110,7 @@ describe("createSearchTmdbTool", () => {
       .mockResolvedValueOnce(fakeDbMovie(2));
 
     const tool = makeTool();
-    await tool.execute({ query: "test", page: 1 }, { toolCallId: "tc1", messages: [], abortSignal: undefined as unknown as AbortSignal });
+    await tool.execute!({ query: "test", page: 1 }, { toolCallId: "tc1", messages: [], abortSignal: undefined as unknown as AbortSignal });
 
     expect(mockSearchMovies).toHaveBeenCalledWith(expect.anything(), "test", 1);
     expect(mockGetMovieDetails).toHaveBeenCalledTimes(2);
@@ -131,7 +131,7 @@ describe("createSearchTmdbTool", () => {
     mockUpsertFromTmdb.mockResolvedValueOnce(fakeDbMovie(1));
 
     const tool = makeTool();
-    const result = await tool.execute({ query: "test", page: 1 }, { toolCallId: "tc1", messages: [], abortSignal: undefined as unknown as AbortSignal });
+    const result = await tool.execute!({ query: "test", page: 1 }, { toolCallId: "tc1", messages: [], abortSignal: undefined as unknown as AbortSignal });
 
     expect(Array.isArray(result)).toBe(true);
     const movies = result as Array<Record<string, unknown>>;
@@ -155,7 +155,7 @@ describe("createSearchTmdbTool", () => {
     } as Awaited<ReturnType<typeof searchMovies>>);
 
     const tool = makeTool();
-    const result = await tool.execute({ query: "nonexistent", page: 1 }, { toolCallId: "tc1", messages: [], abortSignal: undefined as unknown as AbortSignal });
+    const result = await tool.execute!({ query: "nonexistent", page: 1 }, { toolCallId: "tc1", messages: [], abortSignal: undefined as unknown as AbortSignal });
 
     expect(result).toEqual([]);
   });
@@ -164,7 +164,7 @@ describe("createSearchTmdbTool", () => {
     mockSearchMovies.mockRejectedValue(new Error("TMDb API error: 500"));
 
     const tool = makeTool();
-    const result = await tool.execute({ query: "test", page: 1 }, { toolCallId: "tc1", messages: [], abortSignal: undefined as unknown as AbortSignal });
+    const result = await tool.execute!({ query: "test", page: 1 }, { toolCallId: "tc1", messages: [], abortSignal: undefined as unknown as AbortSignal });
 
     expect(result).toEqual({ error: "TMDB unavailable" });
   });

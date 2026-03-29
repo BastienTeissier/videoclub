@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 
 vi.mock("ai", () => ({
   streamText: vi.fn(),
@@ -97,7 +97,7 @@ describe("orchestrator", () => {
   });
 
   it("passes messages array to streamText", async () => {
-    const messages: CoreMessage[] = [{ role: "user", content: "find movies" }];
+    const messages: ModelMessage[] = [{ role: "user", content: "find movies" }];
 
     await runOrchestrator({
       db: fakeDb,
@@ -168,7 +168,7 @@ describe("orchestrator", () => {
     );
   });
 
-  it("loads previous session messages and prepends to CoreMessage[]", async () => {
+  it("loads previous session messages and prepends to ModelMessage[]", async () => {
     mockSessionFindById.mockResolvedValue({ id: "session-existing" });
     mockFindBySessionId.mockResolvedValue([
       { id: "prev-1", role: "user", content: "old question", createdAt: new Date("2024-01-01") },
@@ -184,7 +184,7 @@ describe("orchestrator", () => {
     });
 
     const call = mockStreamText.mock.calls[0]![0];
-    const msgs = call.messages as CoreMessage[];
+    const msgs = call.messages as ModelMessage[];
     // Previous messages (excluding the last one which was just inserted) + incoming
     expect(msgs.length).toBeGreaterThanOrEqual(3);
     expect(msgs[0]).toEqual({ role: "user", content: "old question" });
