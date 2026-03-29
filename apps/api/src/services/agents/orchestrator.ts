@@ -60,16 +60,18 @@ export async function runOrchestrator({
     session = await sessions.create(userId);
   }
 
-  // Persist user messages from incoming
+  // Persist user message from incoming
+  let userMessageId: string | null = null;
   const lastUserMessage = [...incomingMessages]
     .reverse()
     .find((m) => m.role === "user");
   if (lastUserMessage && typeof lastUserMessage.content === "string") {
-    await chatMessages.create({
+    const created = await chatMessages.create({
       sessionId: session.id,
       role: "user",
       content: lastUserMessage.content,
     });
+    userMessageId = created.id;
   }
 
   // Load conversation history from DB and convert to ModelMessage[]
@@ -84,10 +86,9 @@ export async function runOrchestrator({
   const allMessages: ModelMessage[] = [...historyMessages, ...incomingMessages];
 
   // Create agent run
-  const userMsg = previousMessages[previousMessages.length - 1];
   const run = await runs.createRun({
     sessionId: session.id,
-    messageId: userMsg?.id ?? session.id,
+    messageId: userMessageId,
   });
 
   const stream = streamText({
