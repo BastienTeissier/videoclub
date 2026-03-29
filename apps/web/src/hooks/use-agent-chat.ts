@@ -86,10 +86,11 @@ export function useAgentChat() {
         pendingToolCallsRef.current.delete(toolCallId);
 
         let parsed: unknown;
+        const raw = event.content ?? event.result;
         try {
-          parsed = typeof event.result === "string" ? JSON.parse(event.result) : event.result;
+          parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
         } catch {
-          parsed = event.result;
+          parsed = raw;
         }
 
         setToolResults((prev) => [

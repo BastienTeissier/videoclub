@@ -80,7 +80,8 @@ export async function* streamAgUiEvents(
           yield encoder.encode({
             type: EventType.TOOL_CALL_RESULT,
             toolCallId: part.toolCallId,
-            result: JSON.stringify(part.output),
+            messageId: `tool-result-${part.toolCallId}`,
+            content: JSON.stringify(part.output),
           });
           break;
         }
