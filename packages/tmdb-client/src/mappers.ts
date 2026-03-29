@@ -16,7 +16,7 @@ export interface TmdbMovieMapped {
   releaseDate: string | null;
 }
 
-export function mapTmdbToNewMovie(details: TmdbMovieDetails): TmdbMovieMapped {
+export function mapTmdbMovieDetails(details: TmdbMovieDetails): TmdbMovieMapped {
   const year = details.release_date
     ? parseInt(details.release_date.split("-")[0]!, 10)
     : null;

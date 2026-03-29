@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mapTmdbToNewMovie } from "./mappers.js";
+import { mapTmdbMovieDetails } from "./mappers.js";
 import type { TmdbMovieDetails } from "./types.js";
 
 const sampleDetails: TmdbMovieDetails = {
@@ -29,9 +29,9 @@ const sampleDetails: TmdbMovieDetails = {
   },
 };
 
-describe("mapTmdbToNewMovie", () => {
+describe("mapTmdbMovieDetails", () => {
   it("maps TMDb details to TmdbMovieMapped shape", () => {
-    const result = mapTmdbToNewMovie(sampleDetails);
+    const result = mapTmdbMovieDetails(sampleDetails);
 
     expect(result).toEqual({
       tmdbId: 550,
@@ -52,7 +52,7 @@ describe("mapTmdbToNewMovie", () => {
 
   it("handles missing release_date", () => {
     const noDate = { ...sampleDetails, release_date: "" };
-    const result = mapTmdbToNewMovie(noDate);
+    const result = mapTmdbMovieDetails(noDate);
 
     expect(result.year).toBeNull();
     expect(result.releaseDate).toBeNull();
@@ -70,20 +70,20 @@ describe("mapTmdbToNewMovie", () => {
       },
     };
 
-    const result = mapTmdbToNewMovie(manyCast);
+    const result = mapTmdbMovieDetails(manyCast);
     expect(result.cast).toHaveLength(10);
     expect(result.cast[0]).toBe("Actor 0");
     expect(result.cast[9]).toBe("Actor 9");
   });
 
   it("filters only directors from crew", () => {
-    const result = mapTmdbToNewMovie(sampleDetails);
+    const result = mapTmdbMovieDetails(sampleDetails);
     expect(result.directors).toEqual(["David Fincher"]);
   });
 
   it("handles missing credits gracefully", () => {
     const { credits: _, ...noCredits } = sampleDetails;
-    const result = mapTmdbToNewMovie(noCredits as typeof sampleDetails);
+    const result = mapTmdbMovieDetails(noCredits as typeof sampleDetails);
 
     expect(result.cast).toEqual([]);
     expect(result.directors).toEqual([]);

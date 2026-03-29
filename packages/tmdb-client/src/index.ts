@@ -14,5 +14,5 @@ export {
   getMovieDetails,
   searchMovies,
 } from "./endpoints/index.js";
-export { mapTmdbToNewMovie } from "./mappers.js";
+export { mapTmdbMovieDetails } from "./mappers.js";
 export type { TmdbMovieMapped } from "./mappers.js";

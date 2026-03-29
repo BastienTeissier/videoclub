@@ -8,7 +8,7 @@ import {
   getNowPlayingMovies,
   getUpcomingMovies,
   getMovieDetails,
-  mapTmdbToNewMovie,
+  mapTmdbMovieDetails,
 } from "@repo/tmdb-client";
 import { loadSeedConfig } from "./seed-config.js";
 import type { SeedSource } from "./seed-config.js";
@@ -80,7 +80,7 @@ async function main() {
           await processInBatches(results, CONCURRENCY, async (movie) => {
             try {
               const details = await getMovieDetails(tmdb, movie.id);
-              const newMovie = mapTmdbToNewMovie(details);
+              const newMovie = mapTmdbMovieDetails(details);
               await repo.upsertFromTmdb(newMovie);
               totalSeeded++;
               console.log(`  ✓ ${newMovie.title} (${newMovie.year})`);
