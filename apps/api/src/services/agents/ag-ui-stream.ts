@@ -87,22 +87,10 @@ export async function* streamAgUiEvents(
         }
 
         case "tool-approval-request": {
-          const tc = part.toolCall;
-          yield encoder.encode({
-            type: EventType.TOOL_CALL_START,
-            toolCallId: tc.toolCallId,
-            toolCallName: tc.toolName,
-          });
-          yield encoder.encode({
-            type: EventType.TOOL_CALL_ARGS,
-            toolCallId: tc.toolCallId,
-            delta: JSON.stringify(tc.input),
-          });
-          yield encoder.encode({
-            type: EventType.TOOL_CALL_END,
-            toolCallId: tc.toolCallId,
-          });
-          // No TOOL_CALL_RESULT — signals pending approval
+          // AI SDK emits a `tool-call` event before `tool-approval-request`
+          // for the same tool, so TOOL_CALL_START/ARGS/END are already sent.
+          // We intentionally emit nothing here — the absence of a
+          // TOOL_CALL_RESULT signals pending approval to the frontend.
           break;
         }
 

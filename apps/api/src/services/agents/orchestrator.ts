@@ -26,7 +26,7 @@ When a user asks about movies, extract structured search parameters from their n
 
 Always use the search_movies tool to find movies — do not make up movie information.
 
-If local search results are insufficient (0 results, results don't match user intent, or user explicitly asks for more), propose search_tmdb to search TMDB for additional results. Do NOT propose search_tmdb when local results already satisfy the query.`;
+If local search results are insufficient (0 results, results don't match user intent, or user explicitly asks for more), call the search_tmdb tool to search TMDB for additional results. Do NOT call search_tmdb when local results already satisfy the query.`;
 
 interface OrchestratorParams {
   db: Database;
