@@ -45,6 +45,41 @@ async function processInBatches<T>(
   }
 }
 
+export async function seedFromSources(
+  tmdb: TmdbClient,
+  repo: ReturnType<typeof moviesRepository>,
+  sources: SeedSource[]
+): Promise<number> {
+  let totalSeeded = 0;
+
+  for (const source of sources) {
+    try {
+      for (let page = 1; page <= source.pages; page++) {
+        console.log(`[${source.type}] Page ${page}/${source.pages}...`);
+        const { results } = await fetchSourcePage(tmdb, source, page);
+
+        await processInBatches(results, CONCURRENCY, async (movie) => {
+          try {
+            const details = await getMovieDetails(tmdb, movie.id);
+            const newMovie = mapTmdbMovieDetails(details);
+            await repo.upsertFromTmdb(newMovie);
+            totalSeeded++;
+            console.log(`  ✓ ${newMovie.title} (${newMovie.year})`);
+          } catch (error) {
+            console.error(
+              `  ✗ Failed to seed movie ${movie.id}: ${error}`
+            );
+          }
+        });
+      }
+    } catch (error) {
+      console.error(`[${source.type}] Source failed: ${error}`);
+    }
+  }
+
+  return totalSeeded;
+}
+
 async function main() {
   const apiKey = process.env.TMDB_API_KEY;
   if (!apiKey) {
@@ -68,34 +103,8 @@ async function main() {
   const repo = moviesRepository(db);
   const tmdb = new TmdbClient(apiKey);
 
-  let totalSeeded = 0;
-
   try {
-    for (const source of config.sources) {
-      try {
-        for (let page = 1; page <= source.pages; page++) {
-          console.log(`[${source.type}] Page ${page}/${source.pages}...`);
-          const { results } = await fetchSourcePage(tmdb, source, page);
-
-          await processInBatches(results, CONCURRENCY, async (movie) => {
-            try {
-              const details = await getMovieDetails(tmdb, movie.id);
-              const newMovie = mapTmdbMovieDetails(details);
-              await repo.upsertFromTmdb(newMovie);
-              totalSeeded++;
-              console.log(`  ✓ ${newMovie.title} (${newMovie.year})`);
-            } catch (error) {
-              console.error(
-                `  ✗ Failed to seed movie ${movie.id}: ${error}`
-              );
-            }
-          });
-        }
-      } catch (error) {
-        console.error(`[${source.type}] Source failed: ${error}`);
-      }
-    }
-
+    const totalSeeded = await seedFromSources(tmdb, repo, config.sources);
     console.log(`\nSeeded ${totalSeeded} movies.`);
   } finally {
     await client.end();

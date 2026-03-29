@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fetchSourcePage } from "./seed.js";
+import { fetchSourcePage, seedFromSources } from "./seed.js";
 import type { SeedSource } from "./seed-config.js";
 import type { TmdbClient } from "@repo/tmdb-client";
 
@@ -9,6 +9,8 @@ vi.mock("@repo/tmdb-client", () => ({
   getTrendingMovies: vi.fn().mockResolvedValue({ results: [] }),
   getNowPlayingMovies: vi.fn().mockResolvedValue({ results: [] }),
   getUpcomingMovies: vi.fn().mockResolvedValue({ results: [] }),
+  getMovieDetails: vi.fn(),
+  mapTmdbMovieDetails: vi.fn(),
 }));
 
 import {
@@ -42,23 +44,6 @@ describe("fetchSourcePage", () => {
     expect(getTrendingMovies).toHaveBeenCalledWith(tmdb, "week", 1);
   });
 
-  it("continues on source failure", async () => {
-    vi.mocked(getPopularMovies).mockRejectedValueOnce(new Error("API error"));
-
-    const sources: SeedSource[] = [
-      { type: "popular", pages: 1 },
-      { type: "top_rated", pages: 1 },
-    ];
-
-    // First source throws
-    await expect(fetchSourcePage(tmdb, sources[0]!, 1)).rejects.toThrow("API error");
-
-    // Second source still works
-    const result = await fetchSourcePage(tmdb, sources[1]!, 1);
-    expect(result).toEqual({ results: [] });
-    expect(getTopRatedMovies).toHaveBeenCalledWith(tmdb, 1);
-  });
-
   it("calls fetchSourcePage with correct dispatcher for each type", async () => {
     const allSources: SeedSource[] = [
       { type: "popular", pages: 1 },
@@ -77,5 +62,31 @@ describe("fetchSourcePage", () => {
     expect(getTrendingMovies).toHaveBeenCalledWith(tmdb, "day", 1);
     expect(getNowPlayingMovies).toHaveBeenCalledOnce();
     expect(getUpcomingMovies).toHaveBeenCalledOnce();
+  });
+});
+
+describe("seedFromSources", () => {
+  const tmdb = {} as TmdbClient;
+  const mockRepo = {
+    upsertFromTmdb: vi.fn(),
+  } as any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("continues processing remaining sources when one source fails", async () => {
+    vi.mocked(getPopularMovies).mockRejectedValueOnce(new Error("API error"));
+    vi.mocked(getTopRatedMovies).mockResolvedValueOnce({ results: [], page: 1, total_pages: 1, total_results: 0 });
+
+    const sources: SeedSource[] = [
+      { type: "popular", pages: 1 },
+      { type: "top_rated", pages: 1 },
+    ];
+
+    await seedFromSources(tmdb, mockRepo, sources);
+
+    expect(getPopularMovies).toHaveBeenCalledOnce();
+    expect(getTopRatedMovies).toHaveBeenCalledOnce();
   });
 });
