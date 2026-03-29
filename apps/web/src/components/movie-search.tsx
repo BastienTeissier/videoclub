@@ -35,7 +35,7 @@ export function MovieSearch() {
         }
       }
       setResults(movies);
-    } catch (_err) {
+    } catch {
       setError("Failed to search movies");
     } finally {
       setLoading(false);
