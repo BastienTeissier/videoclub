@@ -1,4 +1,10 @@
-import { streamText, stepCountIs, type ModelMessage } from "ai";
+import {
+  streamText,
+  stepCountIs,
+  type ModelMessage,
+  type StreamTextResult,
+  type ToolSet,
+} from "ai";
 import { getModel } from "../../lib/ai-provider.js";
 import { createSearchMoviesTool } from "../../features/tools/search-movies.js";
 import { createSearchTmdbTool } from "../../features/tools/search-tmdb.js";
@@ -29,12 +35,18 @@ interface OrchestratorParams {
   messages: ModelMessage[];
 }
 
+interface OrchestratorResult {
+  sessionId: string;
+  runId: string;
+  stream: StreamTextResult<ToolSet>;
+}
+
 export async function runOrchestrator({
   db,
   sessionId,
   userId,
   messages: incomingMessages,
-}: OrchestratorParams) {
+}: OrchestratorParams): Promise<OrchestratorResult> {
   const sessions = agentSessionsRepository(db);
   const chatMessages = chatMessagesRepository(db);
   const runs = agentRunsRepository(db);
@@ -49,7 +61,9 @@ export async function runOrchestrator({
   }
 
   // Persist user messages from incoming
-  const lastUserMessage = [...incomingMessages].reverse().find((m) => m.role === "user");
+  const lastUserMessage = [...incomingMessages]
+    .reverse()
+    .find((m) => m.role === "user");
   if (lastUserMessage && typeof lastUserMessage.content === "string") {
     await chatMessages.create({
       sessionId: session.id,
@@ -76,72 +90,66 @@ export async function runOrchestrator({
     messageId: userMsg?.id ?? session.id,
   });
 
-  try {
-    const result = streamText({
-      model: getModel(),
-      system: SYSTEM_PROMPT,
-      messages: allMessages,
-      tools: {
-        search_movies: createSearchMoviesTool(db),
-        search_tmdb: createSearchTmdbTool(db),
-      },
-      stopWhen: stepCountIs(5),
-    });
+  const stream = streamText({
+    model: getModel(),
+    system: SYSTEM_PROMPT,
+    messages: allMessages,
+    tools: {
+      search_movies: createSearchMoviesTool(db),
+      search_tmdb: createSearchTmdbTool(db),
+    },
+    stopWhen: stepCountIs(5),
+    onFinish: async (event) => {
+      try {
+        // Persist tool calls from steps
+        for (const step of event.steps) {
+          for (const tc of step.toolCalls) {
+            const toolCallRecord = await runs.createToolCall({
+              runId: run.id,
+              toolName: tc.toolName,
+              input: tc.input,
+            });
 
-    // Await full result (Phase 2 — Phase 3 will return stream directly)
-    const text = await result.text;
-    const steps = await result.steps;
+            const toolResult = step.toolResults.find(
+              (tr) => tr.toolCallId === tc.toolCallId
+            );
 
-    // Persist tool calls from steps
-    const toolResults: { toolName: string; input: unknown; output: unknown }[] =
-      [];
+            if (toolResult) {
+              await runs.completeToolCall(toolCallRecord.id, {
+                output: toolResult.output,
+                durationMs: 0,
+              });
+            }
+          }
+        }
 
-    for (const step of steps) {
-      for (const tc of step.toolCalls) {
-        const toolCallRecord = await runs.createToolCall({
-          runId: run.id,
-          toolName: tc.toolName,
-          input: tc.input,
+        // Insert assistant message
+        await chatMessages.create({
+          sessionId: session.id,
+          role: "assistant",
+          content: event.text,
         });
 
-        const toolResult = step.toolResults.find(
-          (tr) => tr.toolCallId === tc.toolCallId
+        // Complete run
+        await runs.completeRun(run.id);
+      } catch (error) {
+        await runs.failRun(
+          run.id,
+          error instanceof Error ? error.message : String(error)
         );
-
-        if (toolResult) {
-          await runs.completeToolCall(toolCallRecord.id, {
-            output: toolResult.output,
-            durationMs: 0,
-          });
-          toolResults.push({
-            toolName: tc.toolName,
-            input: tc.input,
-            output: toolResult.output,
-          });
-        }
       }
-    }
+    },
+    onError: async ({ error }) => {
+      await runs.failRun(
+        run.id,
+        error instanceof Error ? error.message : String(error)
+      );
+    },
+  });
 
-    // Insert assistant message
-    await chatMessages.create({
-      sessionId: session.id,
-      role: "assistant",
-      content: text,
-    });
-
-    // Complete run
-    await runs.completeRun(run.id);
-
-    return {
-      sessionId: session.id,
-      response: text,
-      toolResults,
-    };
-  } catch (error) {
-    await runs.failRun(
-      run.id,
-      error instanceof Error ? error.message : String(error)
-    );
-    throw error;
-  }
+  return {
+    sessionId: session.id,
+    runId: run.id,
+    stream,
+  };
 }
