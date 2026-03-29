@@ -134,6 +134,7 @@ export function useAgentChat() {
 
       setError(null);
       setPendingApproval(null);
+      setToolResults([]);
       setIsLoading(true);
       pendingToolCallsRef.current.clear();
 
