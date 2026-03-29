@@ -51,8 +51,7 @@ interface ApprovedToolParams {
 export async function runApprovedTool({
   db,
   sessionId,
-  // userId reserved for future auth checks
-  userId: _userId,
+  userId,
   toolName,
 }: ApprovedToolParams): Promise<{
   sessionId: string;
@@ -65,13 +64,18 @@ export async function runApprovedTool({
   const sessions = agentSessionsRepository(db);
   const runs = agentRunsRepository(db);
 
-  const session = await sessions.findById(sessionId);
+  // The AG-UI client threadId may not match the DB session ID,
+  // so fall back to the user's latest session
+  let session = await sessions.findById(sessionId);
   if (!session) {
-    throw new Error(`Session ${sessionId} not found`);
+    session = await sessions.findLatestByUserId(userId);
+  }
+  if (!session) {
+    throw new Error(`No session found for user`);
   }
 
   // Find the pending tool call that was awaiting approval
-  const pending = await runs.findPendingToolCall(sessionId, toolName);
+  const pending = await runs.findPendingToolCall(session.id, toolName);
   if (!pending) {
     throw new Error(`No pending ${toolName} tool call found for session`);
   }
