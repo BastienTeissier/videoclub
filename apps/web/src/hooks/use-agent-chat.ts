@@ -143,6 +143,13 @@ export function useAgentChat() {
 
       const agent = setupAgent();
 
+      // Add user message to agent's internal state so it's sent in the request
+      agent.addMessage({
+        id: `user-${Date.now()}`,
+        role: "user",
+        content: trimmed,
+      } as Message);
+
       // Store threadId from agent after first run
       if (!threadIdRef.current) {
         threadIdRef.current = agent.threadId;

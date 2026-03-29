@@ -14,6 +14,7 @@ vi.mock("@/lib/ag-ui/client", () => ({
     subscribe: mockSubscribe,
     runAgent: mockRunAgent,
     abortRun: mockAbortRun,
+    addMessage: vi.fn(),
   })),
 }));
 
