@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createAgentClient } from "@/lib/ag-ui/client";
-import type { HttpAgent } from "@ag-ui/client";
-import type { Message } from "@ag-ui/core";
+import type { HttpAgent, Message } from "@ag-ui/client";
 
 interface PendingApproval {
   toolCallId: string;

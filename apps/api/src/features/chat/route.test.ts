@@ -38,7 +38,7 @@ beforeEach(() => {
   mockOrchestrator.mockResolvedValue({
     sessionId: "session-1",
     runId: "run-1",
-    stream: { fullStream: emptyStream() } as ReturnType<typeof runOrchestrator> extends Promise<infer T> ? T["stream"] : never,
+    stream: { fullStream: emptyStream() } as unknown as Awaited<ReturnType<typeof runOrchestrator>>["stream"],
   });
 
   mockStreamAgUi.mockReturnValue(

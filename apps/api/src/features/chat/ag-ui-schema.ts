@@ -41,7 +41,7 @@ export type AgUiMessage = z.infer<typeof messageSchema>;
 const toolSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
-  parameters: z.record(z.unknown()).optional(),
+  parameters: z.record(z.string(), z.unknown()).optional(),
 });
 
 const contextSchema = z.object({

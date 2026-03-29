@@ -43,7 +43,7 @@ describe("agUiToAiSdk", () => {
       type: "tool-call",
       toolCallId: "tc-1",
       toolName: "search_movies",
-      args: { title: "Jaws" },
+      input: { title: "Jaws" },
     });
   });
 

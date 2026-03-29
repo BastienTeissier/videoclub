@@ -2,7 +2,7 @@ import {
   streamText,
   stepCountIs,
   type ModelMessage,
-  type StreamTextResult,
+  type TextStreamPart,
   type ToolSet,
 } from "ai";
 import { getModel } from "../../lib/ai-provider.js";
@@ -38,7 +38,7 @@ interface OrchestratorParams {
 interface OrchestratorResult {
   sessionId: string;
   runId: string;
-  stream: StreamTextResult<ToolSet>;
+  stream: { fullStream: AsyncIterable<TextStreamPart<ToolSet>> };
 }
 
 export async function runOrchestrator({

@@ -22,7 +22,7 @@ export function agUiToAiSdk(messages: AgUiMessage[]): ModelMessage[] {
                 type: "tool-call" as const,
                 toolCallId: tc.id,
                 toolName: tc.function.name,
-                args: JSON.parse(tc.function.arguments),
+                input: JSON.parse(tc.function.arguments) as unknown,
               })),
             ],
           });
@@ -42,7 +42,7 @@ export function agUiToAiSdk(messages: AgUiMessage[]): ModelMessage[] {
               type: "tool-result" as const,
               toolCallId: msg.toolCallId,
               toolName: "",
-              result: msg.content,
+              output: { type: "text" as const, value: msg.content },
             },
           ],
         });

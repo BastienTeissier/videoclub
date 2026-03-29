@@ -57,7 +57,7 @@ export async function* streamAgUiEvents(
         case "tool-call": {
           const toolCallId = part.toolCallId;
           const toolName = part.toolName;
-          const args = JSON.stringify(part.args);
+          const args = JSON.stringify(part.input);
 
           yield encoder.encode({
             type: EventType.TOOL_CALL_START,
@@ -80,7 +80,7 @@ export async function* streamAgUiEvents(
           yield encoder.encode({
             type: EventType.TOOL_CALL_RESULT,
             toolCallId: part.toolCallId,
-            result: JSON.stringify(part.result),
+            result: JSON.stringify(part.output),
           });
           break;
         }
@@ -95,7 +95,7 @@ export async function* streamAgUiEvents(
           yield encoder.encode({
             type: EventType.TOOL_CALL_ARGS,
             toolCallId: tc.toolCallId,
-            delta: JSON.stringify(tc.args),
+            delta: JSON.stringify(tc.input),
           });
           yield encoder.encode({
             type: EventType.TOOL_CALL_END,

@@ -71,14 +71,14 @@ describe("streamAgUiEvents", () => {
         type: "tool-call",
         toolCallId: "tc-1",
         toolName: "search_movies",
-        args: { title: "test" },
+        input: { title: "test" },
       } as TextStreamPart<ToolSet>,
       {
         type: "tool-result",
         toolCallId: "tc-1",
         toolName: "search_movies",
-        args: { title: "test" },
-        result: [{ id: "m1" }],
+        input: { title: "test" },
+        output: [{ id: "m1" }],
       } as TextStreamPart<ToolSet>,
     ];
 
