@@ -1,75 +1,67 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MovieSearch } from "./movie-search";
 
-vi.mock("@/lib/api/chat", () => ({
-  chatSearch: vi.fn(),
+const mockSendMessage = vi.fn();
+const mockApproveToolCall = vi.fn();
+const mockRejectToolCall = vi.fn();
+
+const defaultHookReturn = {
+  messages: [] as { id: string; role: string; content: string }[],
+  isLoading: false,
+  error: null as string | null,
+  pendingApproval: null as { toolCallId: string; toolName: string; args: Record<string, unknown> } | null,
+  toolResults: [] as { toolName: string; toolCallId: string; result: unknown }[],
+  sendMessage: mockSendMessage,
+  approveToolCall: mockApproveToolCall,
+  rejectToolCall: mockRejectToolCall,
+};
+
+let hookReturn = { ...defaultHookReturn };
+
+vi.mock("@/hooks/use-agent-chat", () => ({
+  useAgentChat: () => hookReturn,
 }));
-
-import { chatSearch } from "@/lib/api/chat";
-
-const mockChatSearch = vi.mocked(chatSearch);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  hookReturn = { ...defaultHookReturn };
 });
 
 describe("MovieSearch", () => {
-  it("renders the search input", () => {
-    render(<MovieSearch />);
-    const input = screen.getByPlaceholderText("what do you want to watch?");
-    expect(input).toBeInTheDocument();
-  });
-
-  it("calls chat endpoint on Enter submit", async () => {
-    mockChatSearch.mockResolvedValue({
-      sessionId: "00000000-0000-0000-0000-000000000001",
-      response: "Results found",
-      toolResults: [],
-    });
-
+  it("submits query on Enter", () => {
     render(<MovieSearch />);
     const input = screen.getByPlaceholderText("what do you want to watch?");
 
     fireEvent.change(input, { target: { value: "Spielberg movies" } });
     fireEvent.submit(input.closest("form")!);
 
-    await waitFor(() => {
-      expect(mockChatSearch).toHaveBeenCalledWith("Spielberg movies");
-    });
+    expect(mockSendMessage).toHaveBeenCalledWith("Spielberg movies");
   });
 
-  it("displays agent response text", async () => {
-    mockChatSearch.mockResolvedValue({
-      sessionId: "00000000-0000-0000-0000-000000000001",
-      response: "Here are Spielberg movies",
-      toolResults: [],
-    });
+  it("shows streaming text response", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      messages: [
+        { id: "1", role: "user", content: "hello" },
+        { id: "2", role: "assistant", content: "Here are some movies" },
+      ],
+    };
 
     render(<MovieSearch />);
-    const input = screen.getByPlaceholderText("what do you want to watch?");
-
-    fireEvent.change(input, { target: { value: "Spielberg" } });
-    fireEvent.submit(input.closest("form")!);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Here are Spielberg movies")
-      ).toBeInTheDocument();
-    });
+    expect(screen.getByText("Here are some movies")).toBeInTheDocument();
   });
 
-  it("renders movie cards from tool results", async () => {
-    mockChatSearch.mockResolvedValue({
-      sessionId: "00000000-0000-0000-0000-000000000001",
-      response: "Found movies",
+  it("renders movie cards from tool results", () => {
+    hookReturn = {
+      ...defaultHookReturn,
       toolResults: [
         {
           toolName: "search_movies",
-          input: { director: "Spielberg" },
-          output: [
+          toolCallId: "tc-1",
+          result: [
             {
-              id: "00000000-0000-0000-0000-000000000002",
+              id: "uuid-1",
               tmdbId: 100,
               title: "Jaws",
               year: 1975,
@@ -89,16 +81,49 @@ describe("MovieSearch", () => {
           ],
         },
       ],
-    });
+    };
 
     render(<MovieSearch />);
-    const input = screen.getByPlaceholderText("what do you want to watch?");
+    expect(screen.getByText("Jaws")).toBeInTheDocument();
+  });
 
-    fireEvent.change(input, { target: { value: "Spielberg" } });
-    fireEvent.submit(input.closest("form")!);
+  it("shows TMDB confirmation button when pendingApproval", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      pendingApproval: {
+        toolCallId: "tc-1",
+        toolName: "search_tmdb",
+        args: { query: "Stalker" },
+      },
+    };
 
-    await waitFor(() => {
-      expect(screen.getByText("Jaws")).toBeInTheDocument();
-    });
+    render(<MovieSearch />);
+    expect(screen.getByText("Search TMDB for more results")).toBeInTheDocument();
+  });
+
+  it("clicking confirm button calls approveToolCall", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      pendingApproval: {
+        toolCallId: "tc-1",
+        toolName: "search_tmdb",
+        args: { query: "Stalker" },
+      },
+    };
+
+    render(<MovieSearch />);
+    fireEvent.click(screen.getByText("Search TMDB for more results"));
+
+    expect(mockApproveToolCall).toHaveBeenCalledWith("tc-1");
+  });
+
+  it("hides button after approval completes", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      pendingApproval: null,
+    };
+
+    render(<MovieSearch />);
+    expect(screen.queryByText("Search TMDB for more results")).not.toBeInTheDocument();
   });
 });

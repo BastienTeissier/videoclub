@@ -51,12 +51,30 @@ import { runOrchestrator } from "./orchestrator.js";
 
 const mockStreamText = vi.mocked(streamText);
 
-function mockStreamResult(text: string, steps: unknown[] = []) {
+function mockStreamResult() {
   return {
-    text: Promise.resolve(text),
-    steps: Promise.resolve(steps),
     fullStream: (async function* () {})(),
+    text: Promise.resolve(""),
+    steps: Promise.resolve([]),
   };
+}
+
+// Mock streamText to capture and call onFinish
+function setupStreamTextMock(
+  finishEvent: { text: string; steps: unknown[] } = { text: "Hello!", steps: [] }
+) {
+  mockStreamText.mockImplementation((opts: Record<string, unknown>) => {
+    const onFinish = opts.onFinish as
+      | ((event: { text: string; steps: unknown[] }) => Promise<void>)
+      | undefined;
+
+    // Schedule onFinish callback
+    if (onFinish) {
+      Promise.resolve().then(() => onFinish(finishEvent));
+    }
+
+    return mockStreamResult() as unknown as ReturnType<typeof streamText>;
+  });
 }
 
 const fakeDb = {} as Parameters<typeof runOrchestrator>[0]["db"];
@@ -73,9 +91,7 @@ beforeEach(() => {
   mockCreateRun.mockResolvedValue({ id: "run-1" });
   mockCreateToolCall.mockResolvedValue({ id: "tc-1" });
 
-  mockStreamText.mockReturnValue(
-    mockStreamResult("Hello!") as unknown as ReturnType<typeof streamText>
-  );
+  setupStreamTextMock();
 });
 
 describe("orchestrator", () => {
@@ -105,7 +121,7 @@ describe("orchestrator", () => {
       messages,
     });
 
-    const call = mockStreamText.mock.calls[0]![0];
+    const call = mockStreamText.mock.calls[0]![0] as Record<string, unknown>;
     expect(call).toHaveProperty("messages");
     expect(call).not.toHaveProperty("prompt");
   });
@@ -117,14 +133,15 @@ describe("orchestrator", () => {
       messages: [{ role: "user", content: "test" }],
     });
 
-    const call = mockStreamText.mock.calls[0]![0];
+    const call = mockStreamText.mock.calls[0]![0] as Record<string, unknown>;
     expect(call.system).toContain("search_tmdb");
     expect(call.system).toContain("insufficient");
   });
 
-  it("persists tool calls and results from steps", async () => {
-    mockStreamText.mockReturnValue(
-      mockStreamResult("Result", [
+  it("persists tool calls via onFinish callback", async () => {
+    setupStreamTextMock({
+      text: "Result",
+      steps: [
         {
           toolCalls: [
             { toolCallId: "tc-1", toolName: "search_movies", input: { title: "test" } },
@@ -133,14 +150,17 @@ describe("orchestrator", () => {
             { toolCallId: "tc-1", output: [{ id: "m1" }] },
           ],
         },
-      ]) as unknown as ReturnType<typeof streamText>
-    );
+      ],
+    });
 
-    const result = await runOrchestrator({
+    await runOrchestrator({
       db: fakeDb,
       userId: "user-1",
       messages: [{ role: "user", content: "test" }],
     });
+
+    // Wait for onFinish to complete
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(mockCreateToolCall).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -149,16 +169,19 @@ describe("orchestrator", () => {
       })
     );
     expect(mockCompleteToolCall).toHaveBeenCalledWith("tc-1", expect.anything());
-    expect(result.toolResults).toHaveLength(1);
-    expect(result.toolResults[0]!.toolName).toBe("search_movies");
   });
 
-  it("persists assistant message with response text", async () => {
+  it("persists assistant message via onFinish callback", async () => {
+    setupStreamTextMock({ text: "Hello!", steps: [] });
+
     await runOrchestrator({
       db: fakeDb,
       userId: "user-1",
       messages: [{ role: "user", content: "hello" }],
     });
+
+    // Wait for onFinish to complete
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -183,9 +206,8 @@ describe("orchestrator", () => {
       messages: [{ role: "user", content: "new question" }],
     });
 
-    const call = mockStreamText.mock.calls[0]![0];
+    const call = mockStreamText.mock.calls[0]![0] as Record<string, unknown>;
     const msgs = call.messages as ModelMessage[];
-    // Previous messages (excluding the last one which was just inserted) + incoming
     expect(msgs.length).toBeGreaterThanOrEqual(3);
     expect(msgs[0]).toEqual({ role: "user", content: "old question" });
     expect(msgs[1]).toEqual({ role: "assistant", content: "old answer" });
