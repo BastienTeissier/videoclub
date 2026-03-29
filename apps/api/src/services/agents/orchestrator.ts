@@ -1,6 +1,7 @@
-import { generateText, stepCountIs } from "ai";
+import { streamText, stepCountIs, type CoreMessage } from "ai";
 import { getModel } from "../../lib/ai-provider.js";
 import { createSearchMoviesTool } from "../../features/tools/search-movies.js";
+import { createSearchTmdbTool } from "../../features/tools/search-tmdb.js";
 import {
   agentSessionsRepository,
   chatMessagesRepository,
@@ -17,23 +18,25 @@ When a user asks about movies, extract structured search parameters from their n
 - Use the tool to search, then present the results in a friendly way
 - If no results are found, suggest broadening the search
 
-Always use the search_movies tool to find movies — do not make up movie information.`;
+Always use the search_movies tool to find movies — do not make up movie information.
+
+If local search results are insufficient (0 results, results don't match user intent, or user explicitly asks for more), propose search_tmdb to search TMDB for additional results. Do NOT propose search_tmdb when local results already satisfy the query.`;
 
 interface OrchestratorParams {
   db: Database;
   sessionId?: string;
   userId: string;
-  message: string;
+  messages: CoreMessage[];
 }
 
 export async function runOrchestrator({
   db,
   sessionId,
   userId,
-  message,
+  messages: incomingMessages,
 }: OrchestratorParams) {
   const sessions = agentSessionsRepository(db);
-  const messages = chatMessagesRepository(db);
+  const chatMessages = chatMessagesRepository(db);
   const runs = agentRunsRepository(db);
 
   // Get or create session
@@ -45,35 +48,55 @@ export async function runOrchestrator({
     throw new Error(`Session not found: ${sessionId}`);
   }
 
-  // Insert user message
-  const userMessage = await messages.create({
-    sessionId: session.id,
-    role: "user",
-    content: message,
-  });
+  // Persist user messages from incoming
+  const lastUserMessage = incomingMessages.findLast((m) => m.role === "user");
+  if (lastUserMessage && typeof lastUserMessage.content === "string") {
+    await chatMessages.create({
+      sessionId: session.id,
+      role: "user",
+      content: lastUserMessage.content,
+    });
+  }
+
+  // Load conversation history from DB and convert to CoreMessage[]
+  const previousMessages = await chatMessages.findBySessionId(session.id);
+  const historyMessages: CoreMessage[] = previousMessages
+    .slice(0, -1) // exclude the just-inserted user message (it's in incomingMessages)
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content ?? "",
+    }));
+
+  const allMessages: CoreMessage[] = [...historyMessages, ...incomingMessages];
 
   // Create agent run
+  const userMsg = previousMessages[previousMessages.length - 1];
   const run = await runs.createRun({
     sessionId: session.id,
-    messageId: userMessage.id,
+    messageId: userMsg?.id ?? session.id,
   });
 
   try {
-    const result = await generateText({
+    const result = streamText({
       model: getModel(),
       system: SYSTEM_PROMPT,
-      prompt: message,
+      messages: allMessages,
       tools: {
         search_movies: createSearchMoviesTool(db),
+        search_tmdb: createSearchTmdbTool(db),
       },
       stopWhen: stepCountIs(5),
     });
+
+    // Await full result (Phase 2 — Phase 3 will return stream directly)
+    const text = await result.text;
+    const steps = await result.steps;
 
     // Persist tool calls from steps
     const toolResults: { toolName: string; input: unknown; output: unknown }[] =
       [];
 
-    for (const step of result.steps) {
+    for (const step of steps) {
       for (const tc of step.toolCalls) {
         const toolCallRecord = await runs.createToolCall({
           runId: run.id,
@@ -100,10 +123,10 @@ export async function runOrchestrator({
     }
 
     // Insert assistant message
-    await messages.create({
+    await chatMessages.create({
       sessionId: session.id,
       role: "assistant",
-      content: result.text,
+      content: text,
     });
 
     // Complete run
@@ -111,7 +134,7 @@ export async function runOrchestrator({
 
     return {
       sessionId: session.id,
-      response: result.text,
+      response: text,
       toolResults,
     };
   } catch (error) {
