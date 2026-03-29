@@ -51,13 +51,13 @@ export async function runOrchestrator({
   const chatMessages = chatMessagesRepository(db);
   const runs = agentRunsRepository(db);
 
-  // Get or create session
-  const session = sessionId
+  // Find existing session or create a new one
+  let session = sessionId
     ? await sessions.findById(sessionId)
-    : await sessions.create(userId);
+    : null;
 
   if (!session) {
-    throw new Error(`Session not found: ${sessionId}`);
+    session = await sessions.create(userId);
   }
 
   // Persist user messages from incoming
