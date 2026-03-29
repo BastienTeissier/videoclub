@@ -10,6 +10,7 @@ import {
   getMovieDetails,
   mapTmdbMovieDetails,
 } from "@repo/tmdb-client";
+import type { TmdbMovie, TmdbPaginatedResponse } from "@repo/tmdb-client";
 import { loadSeedConfig } from "./seed-config.js";
 import type { SeedSource } from "./seed-config.js";
 
@@ -19,7 +20,7 @@ export function fetchSourcePage(
   tmdb: TmdbClient,
   source: SeedSource,
   page: number
-) {
+): Promise<TmdbPaginatedResponse<TmdbMovie>> {
   switch (source.type) {
     case "popular":
       return getPopularMovies(tmdb, page);
@@ -31,6 +32,10 @@ export function fetchSourcePage(
       return getNowPlayingMovies(tmdb, page);
     case "upcoming":
       return getUpcomingMovies(tmdb, page);
+    default: {
+      const _exhaustive: never = source;
+      throw new Error(`Unknown source type: ${(_exhaustive as SeedSource).type}`);
+    }
   }
 }
 
