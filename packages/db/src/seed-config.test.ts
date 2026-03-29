@@ -3,11 +3,6 @@ import { loadSeedConfig } from "./seed-config.js";
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { z } from "zod";
-
-// Direct schema tests use inline parsing via loadSeedConfig's underlying schema
-// We re-import the module to access the schema indirectly through loadSeedConfig
-
 describe("seed config schema", () => {
   let tempDir: string;
 
