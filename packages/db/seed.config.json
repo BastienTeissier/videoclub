@@ -1,0 +1,9 @@
+{
+  "sources": [
+    { "type": "popular", "pages": 10 },
+    { "type": "top_rated", "pages": 5 },
+    { "type": "trending", "timeWindow": "week", "pages": 3 },
+    { "type": "now_playing", "pages": 2 },
+    { "type": "upcoming", "pages": 2 }
+  ]
+}
