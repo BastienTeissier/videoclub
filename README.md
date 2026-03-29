@@ -8,6 +8,7 @@ Movie watchlist and reviews application.
 - [pnpm 10](https://pnpm.io/)
 - [Docker](https://www.docker.com/) (for local PostgreSQL)
 - A [TMDb API key](https://www.themoviedb.org/settings/api) (for seeding movie data)
+- An [OpenRouter API key](https://openrouter.ai/) **or** a local [Ollama](https://ollama.com/) instance (for the AI agent)
 
 ## Installation
 
@@ -36,7 +37,13 @@ pnpm db:migrate
 # 3. (Optional) Seed the database with ~200 popular movies from TMDb
 TMDB_API_KEY=your_key_here pnpm db:seed
 
-# 4. Start all apps in dev mode
+# 4. Set your AI provider key in apps/api/.env
+#    For OpenRouter (default):
+#      OPENROUTER_API_KEY=your_key_here
+#    For local Ollama:
+#      USE_LOCAL_MODEL=true
+
+# 5. Start all apps in dev mode
 pnpm dev
 ```
 
@@ -95,12 +102,32 @@ All scripts run from the repo root with `pnpm`.
 | `pnpm db:studio` | Open Drizzle Studio |
 | `pnpm db:seed` | Seed DB with popular movies from TMDb (requires `TMDB_API_KEY`) |
 
+## AI agent
+
+The search bar is powered by an AI agent that interprets natural language queries (e.g. "movies from Spielberg", "sci-fi from the 80s") and searches the local database using structured filters.
+
+- **Provider**: OpenRouter (cloud, default) or Ollama (local) -- configured via env vars in `apps/api/.env`
+- **Endpoint**: `POST /api/v1/chat` accepts `{ message, sessionId? }` and returns agent text + tool results
+- **Tool**: `search_movies` extracts title, director, actor, genre, year from the query and runs a structured DB search
+- **Persistence**: sessions, messages, runs, and tool calls are stored in PostgreSQL
+
+### AI environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENROUTER_API_KEY` | _(required for cloud)_ | OpenRouter API key |
+| `OPENROUTER_MODEL` | `google/gemini-2.5-flash-preview` | Model to use via OpenRouter |
+| `USE_LOCAL_MODEL` | `false` | Set to `true` to use Ollama instead |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+| `LOCAL_MODEL_NAME` | `llama3` | Ollama model name |
+
 ## Tech stack
 
 | Layer | Technology |
 |-------|------------|
 | Frontend | Next.js, Tailwind CSS, shadcn/ui |
 | Backend | Hono, Node.js |
+| AI | Vercel AI SDK, OpenRouter / Ollama |
 | Database | PostgreSQL, Drizzle ORM |
 | Testing | Vitest, React Testing Library, Testcontainers |
 | Monorepo | pnpm workspaces, Turborepo |
