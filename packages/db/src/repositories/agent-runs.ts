@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and, isNull, desc } from "drizzle-orm";
 import { agentRuns } from "../schema/agent-runs.js";
 import { toolCalls } from "../schema/tool-calls.js";
 import type { Database } from "../client/index.js";
@@ -61,6 +61,28 @@ export function agentRunsRepository(db: Database) {
         .where(eq(toolCalls.id, id))
         .returning();
       return tc!;
+    },
+
+    async findPendingToolCall(sessionId: string, toolName: string) {
+      const rows = await db
+        .select({
+          id: toolCalls.id,
+          toolName: toolCalls.toolName,
+          input: toolCalls.input,
+          runId: toolCalls.runId,
+        })
+        .from(toolCalls)
+        .innerJoin(agentRuns, eq(toolCalls.runId, agentRuns.id))
+        .where(
+          and(
+            eq(agentRuns.sessionId, sessionId),
+            eq(toolCalls.toolName, toolName),
+            isNull(toolCalls.output),
+          ),
+        )
+        .orderBy(desc(toolCalls.createdAt))
+        .limit(1);
+      return rows[0] ?? null;
     },
   };
 }

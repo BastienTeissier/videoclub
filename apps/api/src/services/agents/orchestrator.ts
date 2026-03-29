@@ -41,6 +41,71 @@ interface OrchestratorResult {
   stream: { fullStream: AsyncIterable<TextStreamPart<ToolSet>> };
 }
 
+interface ApprovedToolParams {
+  db: Database;
+  sessionId: string;
+  userId: string;
+  toolName: string;
+}
+
+export async function runApprovedTool({
+  db,
+  sessionId,
+  // userId reserved for future auth checks
+  userId: _userId,
+  toolName,
+}: ApprovedToolParams): Promise<{
+  sessionId: string;
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
+  result: unknown;
+}> {
+  const sessions = agentSessionsRepository(db);
+  const runs = agentRunsRepository(db);
+
+  const session = await sessions.findById(sessionId);
+  if (!session) {
+    throw new Error(`Session ${sessionId} not found`);
+  }
+
+  // Find the pending tool call that was awaiting approval
+  const pending = await runs.findPendingToolCall(sessionId, toolName);
+  if (!pending) {
+    throw new Error(`No pending ${toolName} tool call found for session`);
+  }
+
+  // Execute the tool directly
+  const searchTmdbTool = createSearchTmdbTool(db);
+  const result = await searchTmdbTool.execute!(
+    pending.input as { query: string; page: number },
+    { toolCallId: `approved-${pending.id}`, messages: [] },
+  );
+
+  // Create a run and tool call record for the execution
+  const run = await runs.createRun({ sessionId: session.id });
+  const toolCallRecord = await runs.createToolCall({
+    runId: run.id,
+    toolName: pending.toolName,
+    input: pending.input,
+  });
+  await runs.completeToolCall(toolCallRecord.id, { output: result, durationMs: 0 });
+  await runs.completeRun(run.id);
+
+  // Mark the original pending tool call as completed too
+  await runs.completeToolCall(pending.id, { output: result, durationMs: 0 });
+
+  return {
+    sessionId: session.id,
+    runId: run.id,
+    toolCallId: `approved-${pending.id}`,
+    toolName: pending.toolName,
+    input: pending.input,
+    result,
+  };
+}
+
 export async function runOrchestrator({
   db,
   sessionId,
