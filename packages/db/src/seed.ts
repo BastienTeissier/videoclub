@@ -1,47 +1,37 @@
 import { createDb } from "./client/index.js";
 import { moviesRepository } from "./repositories/movies.js";
-import type { NewMovie } from "./schema/movies.js";
 import {
   TmdbClient,
   getPopularMovies,
+  getTopRatedMovies,
+  getTrendingMovies,
+  getNowPlayingMovies,
+  getUpcomingMovies,
   getMovieDetails,
+  mapTmdbToNewMovie,
 } from "@repo/tmdb-client";
-import type { TmdbMovieDetails } from "@repo/tmdb-client";
+import { loadSeedConfig } from "./seed-config.js";
+import type { SeedSource } from "./seed-config.js";
 
-const TOTAL_PAGES = 10;
 const CONCURRENCY = 5;
 
-export function mapTmdbToNewMovie(details: TmdbMovieDetails): NewMovie {
-  const year = details.release_date
-    ? parseInt(details.release_date.split("-")[0]!, 10)
-    : null;
-
-  const credits = details.credits ?? { cast: [], crew: [] };
-
-  const directors = credits.crew
-    .filter((c) => c.job === "Director")
-    .map((c) => c.name);
-
-  const cast = credits.cast
-    .sort((a, b) => a.order - b.order)
-    .slice(0, 10)
-    .map((c) => c.name);
-
-  return {
-    tmdbId: details.id,
-    title: details.title,
-    year: isNaN(year ?? NaN) ? null : year,
-    synopsis: details.overview || null,
-    genres: details.genres.map((g) => g.name),
-    cast,
-    directors,
-    runtime: details.runtime,
-    language: details.original_language,
-    posterUrl: details.poster_path,
-    backdropUrl: details.backdrop_path,
-    popularity: details.popularity,
-    releaseDate: details.release_date || null,
-  };
+export function fetchSourcePage(
+  tmdb: TmdbClient,
+  source: SeedSource,
+  page: number
+) {
+  switch (source.type) {
+    case "popular":
+      return getPopularMovies(tmdb, page);
+    case "top_rated":
+      return getTopRatedMovies(tmdb, page);
+    case "trending":
+      return getTrendingMovies(tmdb, source.timeWindow, page);
+    case "now_playing":
+      return getNowPlayingMovies(tmdb, page);
+    case "upcoming":
+      return getUpcomingMovies(tmdb, page);
+  }
 }
 
 async function processInBatches<T>(
@@ -62,6 +52,14 @@ async function main() {
     process.exit(1);
   }
 
+  let config;
+  try {
+    config = loadSeedConfig();
+  } catch (error) {
+    console.error(`Failed to load seed config: ${error}`);
+    process.exit(1);
+  }
+
   const databaseUrl =
     process.env.DATABASE_URL ??
     "postgresql://videoclub:videoclub@localhost:5432/videoclub";
@@ -73,21 +71,29 @@ async function main() {
   let totalSeeded = 0;
 
   try {
-    for (let page = 1; page <= TOTAL_PAGES; page++) {
-      console.log(`Fetching popular movies page ${page}/${TOTAL_PAGES}...`);
-      const { results } = await getPopularMovies(tmdb, page);
+    for (const source of config.sources) {
+      try {
+        for (let page = 1; page <= source.pages; page++) {
+          console.log(`[${source.type}] Page ${page}/${source.pages}...`);
+          const { results } = await fetchSourcePage(tmdb, source, page);
 
-      await processInBatches(results, CONCURRENCY, async (movie) => {
-        try {
-          const details = await getMovieDetails(tmdb, movie.id);
-          const newMovie = mapTmdbToNewMovie(details);
-          await repo.upsertFromTmdb(newMovie);
-          totalSeeded++;
-          console.log(`  ✓ ${newMovie.title} (${newMovie.year})`);
-        } catch (error) {
-          console.error(`  ✗ Failed to seed movie ${movie.id}: ${error}`);
+          await processInBatches(results, CONCURRENCY, async (movie) => {
+            try {
+              const details = await getMovieDetails(tmdb, movie.id);
+              const newMovie = mapTmdbToNewMovie(details);
+              await repo.upsertFromTmdb(newMovie);
+              totalSeeded++;
+              console.log(`  ✓ ${newMovie.title} (${newMovie.year})`);
+            } catch (error) {
+              console.error(
+                `  ✗ Failed to seed movie ${movie.id}: ${error}`
+              );
+            }
+          });
         }
-      });
+      } catch (error) {
+        console.error(`[${source.type}] Source failed: ${error}`);
+      }
     }
 
     console.log(`\nSeeded ${totalSeeded} movies.`);
