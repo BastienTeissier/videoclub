@@ -117,6 +117,7 @@ describe("streamAgUiEvents", () => {
   });
 
   it("emits RUN_ERROR on stream error", async () => {
+    // eslint-disable-next-line require-yield
     async function* errorStream(): AsyncGenerator<TextStreamPart<ToolSet>> {
       throw new Error("Stream failed");
     }
