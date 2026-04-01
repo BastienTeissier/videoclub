@@ -1,46 +1,45 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Input } from "@repo/ui";
+import { Input, Button } from "@repo/ui";
 import type { MovieDto } from "@repo/contracts";
-import { chatSearch } from "@/lib/api/chat";
+import { useAgentChat } from "@/hooks/use-agent-chat";
 import { MovieCard } from "./movie-card";
 
 export function MovieSearch() {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<MovieDto[]>([]);
-  const [response, setResponse] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    messages,
+    isLoading,
+    error,
+    pendingApproval,
+    toolResults,
+    sendMessage,
+    approveToolCall,
+  } = useAgentChat();
 
-  async function handleSubmit(e: FormEvent) {
+  function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!query.trim()) return;
+    sendMessage(query.trim());
+    setQuery("");
+  }
 
-    const trimmed = query.trim();
-    if (!trimmed) return;
-
-    setLoading(true);
-    setError(null);
-    setResponse(null);
-    setResults([]);
-
-    try {
-      const data = await chatSearch(trimmed);
-      setResponse(data.response);
-
-      const movies: MovieDto[] = [];
-      for (const tr of data.toolResults ?? []) {
-        if (tr.toolName === "search_movies" && Array.isArray(tr.output)) {
-          movies.push(...(tr.output as MovieDto[]));
-        }
-      }
-      setResults(movies);
-    } catch {
-      setError("Failed to search movies");
-    } finally {
-      setLoading(false);
+  // Extract movies from tool results
+  const movies: MovieDto[] = [];
+  for (const tr of toolResults) {
+    if (
+      (tr.toolName === "search_movies" || tr.toolName === "search_tmdb") &&
+      Array.isArray(tr.result)
+    ) {
+      movies.push(...(tr.result as MovieDto[]));
     }
   }
+
+  // Get the latest assistant message text
+  const assistantMessages = messages.filter((m) => m.role === "assistant");
+  const lastAssistantText =
+    assistantMessages[assistantMessages.length - 1]?.content ?? null;
 
   return (
     <div className="w-full max-w-2xl mx-auto">
@@ -55,7 +54,7 @@ export function MovieSearch() {
       </form>
 
       <div className="mt-6">
-        {loading && (
+        {isLoading && (
           <p className="text-sm text-muted">Thinking...</p>
         )}
 
@@ -63,17 +62,25 @@ export function MovieSearch() {
           <p className="text-sm text-destructive">{error}</p>
         )}
 
-        {response && !loading && (
-          <p className="text-sm text-muted mb-4">{response}</p>
+        {lastAssistantText && (
+          <p className="text-sm text-muted mb-4">{lastAssistantText}</p>
         )}
 
-        {!loading && !error && !response && query && results.length === 0 && (
-          <p className="text-sm text-muted">No movies found</p>
-        )}
+        {pendingApproval &&
+          pendingApproval.toolName === "search_tmdb" && (
+            <div className="mb-4">
+              <Button
+                onClick={() => approveToolCall(pendingApproval.toolCallId)}
+                disabled={isLoading}
+              >
+                Search TMDB for more results
+              </Button>
+            </div>
+          )}
 
-        {results.length > 0 && (
+        {movies.length > 0 && (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {results.map((movie) => (
+            {movies.map((movie) => (
               <MovieCard key={movie.id} movie={movie} />
             ))}
           </div>
