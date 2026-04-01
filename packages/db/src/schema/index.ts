@@ -19,3 +19,8 @@ export {
   type ToolCall,
   type NewToolCall,
 } from "./tool-calls.js";
+export {
+  watchlistItems,
+  type WatchlistItem,
+  type NewWatchlistItem,
+} from "./watchlist-items.js";
