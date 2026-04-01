@@ -23,6 +23,13 @@ vi.mock("@/hooks/use-agent-chat", () => ({
   useAgentChat: () => hookReturn,
 }));
 
+vi.mock("@/contexts/watchlist-context", () => ({
+  useWatchlist: () => ({
+    isInWatchlist: () => false,
+    toggleWatchlist: vi.fn(),
+  }),
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
   hookReturn = { ...defaultHookReturn };

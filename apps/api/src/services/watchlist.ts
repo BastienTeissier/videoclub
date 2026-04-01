@@ -1,24 +1,15 @@
-import { watchlistRepository } from "@repo/db";
+import { watchlistRepository, moviesRepository } from "@repo/db";
 import type { Database } from "@repo/db";
-import { movies } from "@repo/db";
-import { eq } from "drizzle-orm";
 
 export function watchlistService(db: Database) {
   const watchlistRepo = watchlistRepository(db);
-
-  async function getMovieTitle(movieId: string): Promise<string> {
-    const [movie] = await db
-      .select({ title: movies.title })
-      .from(movies)
-      .where(eq(movies.id, movieId))
-      .limit(1);
-    return movie?.title ?? "Movie";
-  }
+  const moviesRepo = moviesRepository(db);
 
   return {
     async add(userId: string, movieId: string) {
       const item = await watchlistRepo.add(userId, movieId);
-      const title = await getMovieTitle(movieId);
+      const movie = await moviesRepo.findById(movieId);
+      const title = movie?.title ?? "Movie";
 
       if (!item) {
         return { added: false, message: `${title} is already in your watchlist` };

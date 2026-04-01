@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockAdd = vi.fn();
-const mockRemove = vi.fn();
-const mockList = vi.fn();
+const { mockAdd, mockRemove, mockList } = vi.hoisted(() => ({
+  mockAdd: vi.fn(),
+  mockRemove: vi.fn(),
+  mockList: vi.fn(),
+}));
 
 vi.mock("../../services/watchlist.js", () => ({
   watchlistService: vi.fn(() => ({
@@ -33,7 +35,7 @@ describe("POST /api/v1/watchlist/:movieId", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as { added: boolean; message: string };
     expect(body.added).toBe(true);
     expect(body.message).toContain("added to watchlist");
   });
@@ -46,7 +48,7 @@ describe("POST /api/v1/watchlist/:movieId", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as { added: boolean; message: string };
     expect(body.added).toBe(false);
     expect(body.message).toContain("already in your watchlist");
   });
@@ -57,7 +59,7 @@ describe("POST /api/v1/watchlist/:movieId", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBeDefined();
   });
 });
@@ -71,7 +73,7 @@ describe("DELETE /api/v1/watchlist/:movieId", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as { removed: boolean; message: string };
     expect(body.removed).toBe(true);
   });
 
@@ -83,7 +85,7 @@ describe("DELETE /api/v1/watchlist/:movieId", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as { removed: boolean; message: string };
     expect(body.removed).toBe(false);
     expect(body.message).toContain("not in your watchlist");
   });
@@ -102,7 +104,7 @@ describe("GET /api/v1/watchlist", () => {
     const res = await app.request("/api/v1/watchlist");
 
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as { items: unknown[]; count: number };
     expect(body.items).toHaveLength(2);
     expect(body.count).toBe(2);
   });

@@ -4,6 +4,7 @@ const mockAdd = vi.fn();
 const mockRemove = vi.fn();
 const mockListByUser = vi.fn();
 const mockGetWatchlistedMovieIds = vi.fn();
+const mockFindById = vi.fn();
 
 vi.mock("@repo/db", () => ({
   watchlistRepository: vi.fn(() => ({
@@ -12,37 +13,20 @@ vi.mock("@repo/db", () => ({
     listByUser: mockListByUser,
     getWatchlistedMovieIds: mockGetWatchlistedMovieIds,
   })),
-  movies: { id: "id", title: "title" },
+  moviesRepository: vi.fn(() => ({
+    findById: mockFindById,
+  })),
 }));
-
-vi.mock("drizzle-orm", () => ({
-  eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
-}));
-
-const mockDbSelect = vi.fn();
-const mockDbFrom = vi.fn();
-const mockDbWhere = vi.fn();
-const mockDbLimit = vi.fn();
-
-const mockDb = {
-  select: mockDbSelect,
-} as unknown as import("@repo/db").Database;
-
-mockDbSelect.mockReturnValue({ from: mockDbFrom });
-mockDbFrom.mockReturnValue({ where: mockDbWhere });
-mockDbWhere.mockReturnValue({ limit: mockDbLimit });
 
 import { watchlistService } from "./watchlist.js";
 
+const mockDb = {} as import("@repo/db").Database;
 const userId = "user-1";
 const movieId = "movie-uuid-1";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDbSelect.mockReturnValue({ from: mockDbFrom });
-  mockDbFrom.mockReturnValue({ where: mockDbWhere });
-  mockDbWhere.mockReturnValue({ limit: mockDbLimit });
-  mockDbLimit.mockResolvedValue([{ title: "Arrival" }]);
+  mockFindById.mockResolvedValue({ title: "Arrival" });
 });
 
 describe("watchlistService", () => {
