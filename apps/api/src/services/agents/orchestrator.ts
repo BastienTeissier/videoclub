@@ -8,6 +8,7 @@ import {
 import { getModel } from "../../lib/ai-provider.js";
 import { createSearchMoviesTool } from "../../features/tools/search-movies.js";
 import { createSearchTmdbTool } from "../../features/tools/search-tmdb.js";
+import { createWatchlistShowTool } from "../../features/tools/watchlist-show.js";
 import {
   agentSessionsRepository,
   chatMessagesRepository,
@@ -26,7 +27,9 @@ When a user asks about movies, extract structured search parameters from their n
 
 Always use the search_movies tool to find movies — do not make up movie information.
 
-If local search results are insufficient (0 results, results don't match user intent, or user explicitly asks for more), call the search_tmdb tool to search TMDB for additional results. Do NOT call search_tmdb when local results already satisfy the query.`;
+If local search results are insufficient (0 results, results don't match user intent, or user explicitly asks for more), call the search_tmdb tool to search TMDB for additional results. Do NOT call search_tmdb when local results already satisfy the query.
+
+When the user asks to see, show, check, or view their watchlist (e.g. "show my watchlist", "what's on my watchlist", "check my watchlist"), use the watchlist_show tool.`;
 
 interface OrchestratorParams {
   db: Database;
@@ -167,6 +170,7 @@ export async function runOrchestrator({
     tools: {
       search_movies: createSearchMoviesTool(db),
       search_tmdb: createSearchTmdbTool(db),
+      watchlist_show: createWatchlistShowTool(db, userId),
     },
     stopWhen: stepCountIs(5),
     onFinish: async (event) => {
