@@ -1,23 +1,11 @@
 "use client";
 
-import { watchlistGridSurfaceSchema } from "@repo/contracts";
 import { WatchlistGrid } from "./renderers/watchlist-grid";
 
-interface SafeParseResult {
-  success: boolean;
-  data?: unknown;
-}
+type RendererComponent = React.ComponentType<{ data: never }>;
 
-interface RegistryEntry {
-  schema: { safeParse: (data: unknown) => SafeParseResult };
-  component: React.ComponentType<{ data: unknown }>;
-}
-
-const registry: Record<string, RegistryEntry> = {
-  "watchlist-grid": {
-    schema: watchlistGridSurfaceSchema,
-    component: WatchlistGrid as React.ComponentType<{ data: unknown }>,
-  },
+const registry: Record<string, RendererComponent> = {
+  "watchlist-grid": WatchlistGrid as RendererComponent,
 };
 
 interface A2UIRendererProps {
@@ -25,12 +13,8 @@ interface A2UIRendererProps {
 }
 
 export function A2UIRenderer({ surface }: A2UIRendererProps) {
-  const entry = registry[surface.type];
-  if (!entry) return null;
+  const Component = registry[surface.type];
+  if (!Component) return null;
 
-  const parsed = entry.schema.safeParse(surface);
-  if (!parsed.success) return null;
-
-  const Component = entry.component;
-  return <Component data={parsed.data} />;
+  return <Component data={surface as never} />;
 }

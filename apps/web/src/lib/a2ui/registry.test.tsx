@@ -55,16 +55,22 @@ describe("A2UIRenderer", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("returns null for invalid payload", () => {
-    const { container } = render(
+  it("delegates rendering to the matched component", () => {
+    render(
       <A2UIRenderer
         surface={{
           type: "watchlist-grid",
-          // missing required fields
+          items: [],
+          count: 0,
+          message: "Your watchlist is empty. Search for movies to get started!",
         }}
       />,
     );
 
-    expect(container.innerHTML).toBe("");
+    expect(
+      screen.getByText(
+        "Your watchlist is empty. Search for movies to get started!",
+      ),
+    ).toBeInTheDocument();
   });
 });
