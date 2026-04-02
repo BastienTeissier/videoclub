@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { Input, Button } from "@repo/ui";
 import type { MovieDto } from "@repo/contracts";
 import { useAgentChat } from "@/hooks/use-agent-chat";
+import { A2UIRenderer } from "@/lib/a2ui/registry";
 import { MovieCard } from "./movie-card";
 
 export function MovieSearch() {
@@ -24,6 +25,15 @@ export function MovieSearch() {
     sendMessage(query.trim());
     setQuery("");
   }
+
+  // Extract A2UI surfaces from tool results
+  const watchlistSurface = toolResults.find(
+    (tr) =>
+      tr.toolName === "watchlist_show" &&
+      tr.result &&
+      typeof tr.result === "object" &&
+      "type" in tr.result,
+  );
 
   // Extract movies from tool results
   const movies: MovieDto[] = [];
@@ -46,7 +56,7 @@ export function MovieSearch() {
       <form onSubmit={handleSubmit}>
         <Input
           type="text"
-          placeholder="what do you want to watch?"
+          placeholder="what do you want to watch? Try: check my watchlist"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="w-full"
@@ -77,6 +87,12 @@ export function MovieSearch() {
               </Button>
             </div>
           )}
+
+        {watchlistSurface && (
+          <A2UIRenderer
+            surface={watchlistSurface.result as { type: string; [key: string]: unknown }}
+          />
+        )}
 
         {movies.length > 0 && (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">

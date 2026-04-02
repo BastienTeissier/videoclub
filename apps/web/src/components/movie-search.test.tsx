@@ -38,7 +38,9 @@ beforeEach(() => {
 describe("MovieSearch", () => {
   it("submits query on Enter", () => {
     render(<MovieSearch />);
-    const input = screen.getByPlaceholderText("what do you want to watch?");
+    const input = screen.getByPlaceholderText(
+      "what do you want to watch? Try: check my watchlist",
+    );
 
     fireEvent.change(input, { target: { value: "Spielberg movies" } });
     fireEvent.submit(input.closest("form")!);
@@ -132,5 +134,80 @@ describe("MovieSearch", () => {
 
     render(<MovieSearch />);
     expect(screen.queryByText("Search TMDB for more results")).not.toBeInTheDocument();
+  });
+
+  it("shows watchlist discoverability copy in the input", () => {
+    render(<MovieSearch />);
+    expect(
+      screen.getByPlaceholderText(
+        "what do you want to watch? Try: check my watchlist",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("renders A2UI surface from watchlist_show tool result", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      toolResults: [
+        {
+          toolName: "watchlist_show",
+          toolCallId: "tc-w1",
+          result: {
+            type: "watchlist-grid",
+            items: [
+              {
+                id: "00000000-0000-4000-8000-000000000001",
+                tmdbId: 1,
+                title: "Inception",
+                year: 2010,
+                synopsis: null,
+                genres: null,
+                cast: null,
+                directors: null,
+                runtime: null,
+                language: null,
+                posterUrl: null,
+                backdropUrl: null,
+                popularity: null,
+                releaseDate: null,
+                createdAt: "2024-01-01T00:00:00.000Z",
+                updatedAt: "2024-01-01T00:00:00.000Z",
+              },
+            ],
+            count: 1,
+          },
+        },
+      ],
+    };
+
+    render(<MovieSearch />);
+    expect(screen.getByText("My Watchlist (0)")).toBeInTheDocument();
+  });
+
+  it("renders watchlist error surface message", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      toolResults: [
+        {
+          toolName: "watchlist_show",
+          toolCallId: "tc-w2",
+          result: {
+            type: "watchlist-grid",
+            items: [],
+            count: 0,
+            error: true,
+            message:
+              "Sorry, I couldn't load your watchlist right now. Please try again.",
+          },
+        },
+      ],
+    };
+
+    render(<MovieSearch />);
+    expect(
+      screen.getByText(
+        "Sorry, I couldn't load your watchlist right now. Please try again.",
+      ),
+    ).toBeInTheDocument();
   });
 });
