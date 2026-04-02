@@ -18,6 +18,10 @@ vi.mock("../../features/tools/search-tmdb.js", () => ({
   createSearchTmdbTool: vi.fn(() => ({ type: "search_tmdb_tool" })),
 }));
 
+vi.mock("../../features/tools/watchlist-show.js", () => ({
+  createWatchlistShowTool: vi.fn(() => ({ type: "watchlist_show_tool" })),
+}));
+
 const mockCreate = vi.fn();
 const mockFindBySessionId = vi.fn();
 const mockSessionCreate = vi.fn();
