@@ -1,11 +1,15 @@
 "use client";
 
-import type { z } from "zod";
 import { watchlistGridSurfaceSchema } from "@repo/contracts";
 import { WatchlistGrid } from "./renderers/watchlist-grid";
 
+interface SafeParseResult {
+  success: boolean;
+  data?: unknown;
+}
+
 interface RegistryEntry {
-  schema: z.ZodType;
+  schema: { safeParse: (data: unknown) => SafeParseResult };
   component: React.ComponentType<{ data: unknown }>;
 }
 
