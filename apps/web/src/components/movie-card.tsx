@@ -3,9 +3,10 @@ import { BookmarkIcon } from "./bookmark-icon";
 
 interface MovieCardProps {
   movie: MovieDto;
+  alwaysShowBookmark?: boolean;
 }
 
-export function MovieCard({ movie }: MovieCardProps) {
+export function MovieCard({ movie, alwaysShowBookmark = false }: MovieCardProps) {
   return (
     <div className="group relative overflow-hidden rounded-lg">
       <div className="relative">
@@ -23,7 +24,7 @@ export function MovieCard({ movie }: MovieCardProps) {
         <BookmarkIcon
           movieId={movie.id}
           movieTitle={movie.title}
-          className="opacity-0 group-hover:opacity-100"
+          className={alwaysShowBookmark ? "" : "opacity-0 group-hover:opacity-100"}
         />
       </div>
       <div className="mt-1.5">
