@@ -1,4 +1,4 @@
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, ilike } from "drizzle-orm";
 import { watchlistItems } from "../schema/watchlist-items.js";
 import { movies } from "../schema/movies.js";
 import type { Database } from "../client/index.js";
@@ -68,6 +68,39 @@ export function watchlistRepository(db: Database) {
         )
         .limit(1);
       return !!row;
+    },
+
+    async searchByTitleInWatchlist(userId: string, title: string) {
+      const rows = await db
+        .select({
+          id: movies.id,
+          tmdbId: movies.tmdbId,
+          title: movies.title,
+          year: movies.year,
+          synopsis: movies.synopsis,
+          genres: movies.genres,
+          cast: movies.cast,
+          directors: movies.directors,
+          runtime: movies.runtime,
+          language: movies.language,
+          posterUrl: movies.posterUrl,
+          backdropUrl: movies.backdropUrl,
+          popularity: movies.popularity,
+          releaseDate: movies.releaseDate,
+          createdAt: movies.createdAt,
+          updatedAt: movies.updatedAt,
+        })
+        .from(watchlistItems)
+        .innerJoin(movies, eq(watchlistItems.movieId, movies.id))
+        .where(
+          and(
+            eq(watchlistItems.userId, userId),
+            ilike(movies.title, `%${title}%`)
+          )
+        )
+        .orderBy(desc(watchlistItems.addedAt))
+        .limit(10);
+      return rows;
     },
 
     async getWatchlistedMovieIds(userId: string, movieIds: string[]) {
