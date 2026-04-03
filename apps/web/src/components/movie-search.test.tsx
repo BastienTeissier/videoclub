@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import type { MovieDto } from "@repo/contracts";
 import { MovieSearch } from "./movie-search";
 
 const mockSendMessage = vi.fn();
@@ -23,16 +24,44 @@ vi.mock("@/hooks/use-agent-chat", () => ({
   useAgentChat: () => hookReturn,
 }));
 
+const mockRefetch = vi.fn();
+
 vi.mock("@/contexts/watchlist-context", () => ({
   useWatchlist: () => ({
     isInWatchlist: () => false,
     toggleWatchlist: vi.fn(),
+    refetch: mockRefetch,
   }),
+}));
+
+const mockSetMovies = vi.fn();
+const mockSetWatchlistSurface = vi.fn();
+const mockSetClarification = vi.fn();
+
+let chatResultsReturn = {
+  movies: [] as MovieDto[],
+  watchlistSurface: null as { type: string; [key: string]: unknown } | null,
+  clarification: null as { action: "add" | "remove"; candidates: MovieDto[] } | null,
+  setMovies: mockSetMovies,
+  setWatchlistSurface: mockSetWatchlistSurface,
+  setClarification: mockSetClarification,
+};
+
+vi.mock("@/contexts/chat-results-context", () => ({
+  useChatResults: () => chatResultsReturn,
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
   hookReturn = { ...defaultHookReturn };
+  chatResultsReturn = {
+    movies: [],
+    watchlistSurface: null,
+    clarification: null,
+    setMovies: mockSetMovies,
+    setWatchlistSurface: mockSetWatchlistSurface,
+    setClarification: mockSetClarification,
+  };
 });
 
 describe("MovieSearch", () => {
@@ -61,33 +90,27 @@ describe("MovieSearch", () => {
     expect(screen.getByText("Here are some movies")).toBeInTheDocument();
   });
 
-  it("renders movie cards from tool results", () => {
-    hookReturn = {
-      ...defaultHookReturn,
-      toolResults: [
+  it("renders movie cards from persisted context", () => {
+    chatResultsReturn = {
+      ...chatResultsReturn,
+      movies: [
         {
-          toolName: "search_movies",
-          toolCallId: "tc-1",
-          result: [
-            {
-              id: "uuid-1",
-              tmdbId: 100,
-              title: "Jaws",
-              year: 1975,
-              synopsis: null,
-              genres: ["Thriller"],
-              cast: ["Roy Scheider"],
-              directors: ["Steven Spielberg"],
-              runtime: null,
-              language: null,
-              posterUrl: null,
-              backdropUrl: null,
-              popularity: 80,
-              releaseDate: null,
-              createdAt: "2024-01-01T00:00:00.000Z",
-              updatedAt: "2024-01-01T00:00:00.000Z",
-            },
-          ],
+          id: "uuid-1",
+          tmdbId: 100,
+          title: "Jaws",
+          year: 1975,
+          synopsis: null,
+          genres: ["Thriller"],
+          cast: ["Roy Scheider"],
+          directors: ["Steven Spielberg"],
+          runtime: null,
+          language: null,
+          posterUrl: null,
+          backdropUrl: null,
+          popularity: 80,
+          releaseDate: null,
+          createdAt: "2024-01-01T00:00:00.000Z",
+          updatedAt: "2024-01-01T00:00:00.000Z",
         },
       ],
     };
@@ -145,62 +168,50 @@ describe("MovieSearch", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders A2UI surface from watchlist_show tool result", () => {
-    hookReturn = {
-      ...defaultHookReturn,
-      toolResults: [
-        {
-          toolName: "watchlist_show",
-          toolCallId: "tc-w1",
-          result: {
-            type: "watchlist-grid",
-            items: [
-              {
-                id: "00000000-0000-4000-8000-000000000001",
-                tmdbId: 1,
-                title: "Inception",
-                year: 2010,
-                synopsis: null,
-                genres: null,
-                cast: null,
-                directors: null,
-                runtime: null,
-                language: null,
-                posterUrl: null,
-                backdropUrl: null,
-                popularity: null,
-                releaseDate: null,
-                createdAt: "2024-01-01T00:00:00.000Z",
-                updatedAt: "2024-01-01T00:00:00.000Z",
-              },
-            ],
-            count: 1,
+  it("renders A2UI surface from persisted watchlist context", () => {
+    chatResultsReturn = {
+      ...chatResultsReturn,
+      watchlistSurface: {
+        type: "watchlist-grid",
+        items: [
+          {
+            id: "00000000-0000-4000-8000-000000000001",
+            tmdbId: 1,
+            title: "Inception",
+            year: 2010,
+            synopsis: null,
+            genres: null,
+            cast: null,
+            directors: null,
+            runtime: null,
+            language: null,
+            posterUrl: null,
+            backdropUrl: null,
+            popularity: null,
+            releaseDate: null,
+            createdAt: "2024-01-01T00:00:00.000Z",
+            updatedAt: "2024-01-01T00:00:00.000Z",
           },
-        },
-      ],
+        ],
+        count: 1,
+      },
     };
 
     render(<MovieSearch />);
     expect(screen.getByText("My Watchlist (0)")).toBeInTheDocument();
   });
 
-  it("renders watchlist error surface message", () => {
-    hookReturn = {
-      ...defaultHookReturn,
-      toolResults: [
-        {
-          toolName: "watchlist_show",
-          toolCallId: "tc-w2",
-          result: {
-            type: "watchlist-grid",
-            items: [],
-            count: 0,
-            error: true,
-            message:
-              "Sorry, I couldn't load your watchlist right now. Please try again.",
-          },
-        },
-      ],
+  it("renders watchlist error surface message from persisted context", () => {
+    chatResultsReturn = {
+      ...chatResultsReturn,
+      watchlistSurface: {
+        type: "watchlist-grid",
+        items: [],
+        count: 0,
+        error: true,
+        message:
+          "Sorry, I couldn't load your watchlist right now. Please try again.",
+      },
     };
 
     render(<MovieSearch />);
@@ -209,5 +220,94 @@ describe("MovieSearch", () => {
         "Sorry, I couldn't load your watchlist right now. Please try again.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("clarification result renders candidate buttons", () => {
+    chatResultsReturn = {
+      ...chatResultsReturn,
+      clarification: {
+        action: "add",
+        candidates: [
+          {
+            id: "uuid-1",
+            tmdbId: 1,
+            title: "Arrival",
+            year: 2016,
+            synopsis: null,
+            genres: null,
+            cast: null,
+            directors: null,
+            runtime: null,
+            language: null,
+            posterUrl: null,
+            backdropUrl: null,
+            popularity: null,
+            releaseDate: null,
+            createdAt: "2024-01-01T00:00:00.000Z",
+            updatedAt: "2024-01-01T00:00:00.000Z",
+          },
+          {
+            id: "uuid-2",
+            tmdbId: 2,
+            title: "Arrival 2",
+            year: 2020,
+            synopsis: null,
+            genres: null,
+            cast: null,
+            directors: null,
+            runtime: null,
+            language: null,
+            posterUrl: null,
+            backdropUrl: null,
+            popularity: null,
+            releaseDate: null,
+            createdAt: "2024-01-01T00:00:00.000Z",
+            updatedAt: "2024-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+    };
+
+    render(<MovieSearch />);
+    expect(screen.getByText("Which movie did you mean?")).toBeInTheDocument();
+    expect(screen.getByText("Arrival (2016)")).toBeInTheDocument();
+    expect(screen.getByText("Arrival 2 (2020)")).toBeInTheDocument();
+  });
+
+  it("clicking clarification candidate sends follow-up message with embedded movieId", () => {
+    chatResultsReturn = {
+      ...chatResultsReturn,
+      clarification: {
+        action: "add",
+        candidates: [
+          {
+            id: "uuid-1",
+            tmdbId: 1,
+            title: "Arrival",
+            year: 2016,
+            synopsis: null,
+            genres: null,
+            cast: null,
+            directors: null,
+            runtime: null,
+            language: null,
+            posterUrl: null,
+            backdropUrl: null,
+            popularity: null,
+            releaseDate: null,
+            createdAt: "2024-01-01T00:00:00.000Z",
+            updatedAt: "2024-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+    };
+
+    render(<MovieSearch />);
+    fireEvent.click(screen.getByText("Arrival (2016)"));
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      "add [movieId:uuid-1] Arrival (2016) to my watchlist"
+    );
+    expect(mockSetClarification).toHaveBeenCalledWith(null);
   });
 });

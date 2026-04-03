@@ -78,7 +78,7 @@ export function MovieSearch() {
         typeof tr.result === "object" &&
         "clarification_needed" in tr.result
       ) {
-        const result = tr.result as {
+        const result = tr.result as unknown as {
           action: "add" | "remove";
           candidates: MovieDto[];
         };

@@ -22,6 +22,14 @@ vi.mock("../../features/tools/watchlist-show.js", () => ({
   createWatchlistShowTool: vi.fn(() => ({ type: "watchlist_show_tool" })),
 }));
 
+vi.mock("../../features/tools/watchlist-add.js", () => ({
+  createWatchlistAddTool: vi.fn(() => ({ type: "watchlist_add_tool" })),
+}));
+
+vi.mock("../../features/tools/watchlist-remove.js", () => ({
+  createWatchlistRemoveTool: vi.fn(() => ({ type: "watchlist_remove_tool" })),
+}));
+
 const mockCreate = vi.fn();
 const mockFindBySessionId = vi.fn();
 const mockSessionCreate = vi.fn();
