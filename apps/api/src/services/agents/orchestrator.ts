@@ -9,6 +9,8 @@ import { getModel } from "../../lib/ai-provider.js";
 import { createSearchMoviesTool } from "../../features/tools/search-movies.js";
 import { createSearchTmdbTool } from "../../features/tools/search-tmdb.js";
 import { createWatchlistShowTool } from "../../features/tools/watchlist-show.js";
+import { createWatchlistAddTool } from "../../features/tools/watchlist-add.js";
+import { createWatchlistRemoveTool } from "../../features/tools/watchlist-remove.js";
 import {
   agentSessionsRepository,
   chatMessagesRepository,
@@ -29,7 +31,16 @@ Always use the search_movies tool to find movies — do not make up movie inform
 
 If local search results are insufficient (0 results, results don't match user intent, or user explicitly asks for more), call the search_tmdb tool to search TMDB for additional results. Do NOT call search_tmdb when local results already satisfy the query.
 
-When the user asks to see, show, check, or view their watchlist (e.g. "show my watchlist", "what's on my watchlist", "check my watchlist"), use the watchlist_show tool.`;
+When the user asks to see, show, check, or view their watchlist (e.g. "show my watchlist", "what's on my watchlist", "check my watchlist"), use the watchlist_show tool.
+
+When the user wants to add a movie to their watchlist, use the watchlist_add tool.
+When the user wants to remove a movie from their watchlist, use the watchlist_remove tool.
+If watchlist_add returns not_found, tell the user to search for the movie first using the search bar, then ask again to add it.
+Do not attempt to automatically search TMDB and then add in the same turn.
+If a tool returns clarification_needed, present the candidates and ask the user to pick one.
+When a user message contains a movie ID in brackets like [movieId:xxx], pass it as the movieId parameter to the tool to skip search.
+Always ask for clarification when a movie reference is ambiguous — never auto-resolve pronouns like "it".
+On successful add or remove, confirm with the movie title and year.`;
 
 interface OrchestratorParams {
   db: Database;
@@ -171,6 +182,8 @@ export async function runOrchestrator({
       search_movies: createSearchMoviesTool(db),
       search_tmdb: createSearchTmdbTool(db),
       watchlist_show: createWatchlistShowTool(db, userId),
+      watchlist_add: createWatchlistAddTool(db, userId),
+      watchlist_remove: createWatchlistRemoveTool(db, userId),
     },
     stopWhen: stepCountIs(5),
     onFinish: async (event) => {
