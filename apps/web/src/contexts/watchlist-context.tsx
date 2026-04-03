@@ -21,6 +21,7 @@ interface WatchlistContextValue {
   addToWatchlist: (movieId: string) => Promise<AddToWatchlistResponse>;
   removeFromWatchlist: (movieId: string) => Promise<RemoveFromWatchlistResponse>;
   toggleWatchlist: (movieId: string) => Promise<void>;
+  refetch: () => Promise<void>;
 }
 
 const WatchlistContext = createContext<WatchlistContextValue | null>(null);
@@ -93,6 +94,15 @@ export function WatchlistProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const refetch = useCallback(async () => {
+    try {
+      const data = await fetchWatchlist();
+      setWatchlistedIds(new Set(data.items.map((m) => m.id)));
+    } catch {
+      // silently fail on refetch
+    }
+  }, []);
+
   const toggleWatchlist = useCallback(
     async (movieId: string) => {
       if (watchlistedIds.has(movieId)) {
@@ -112,6 +122,7 @@ export function WatchlistProvider({ children }: { children: React.ReactNode }) {
         addToWatchlist,
         removeFromWatchlist,
         toggleWatchlist,
+        refetch,
       }}
     >
       {children}
