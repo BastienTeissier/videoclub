@@ -157,6 +157,34 @@ describe("watchlistRepository", () => {
     expect(result).toBe(false);
   });
 
+  it("searchByTitleInWatchlist — returns matching movie by partial title", async () => {
+    const repo = watchlistRepository(db);
+    // user has Arrival, Dune, Heat in watchlist
+    const results = await repo.searchByTitleInWatchlist(userId, "arr");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.title).toBe("Arrival");
+  });
+
+  it("searchByTitleInWatchlist — case-insensitive match", async () => {
+    const repo = watchlistRepository(db);
+    const results = await repo.searchByTitleInWatchlist(userId, "arrival");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.title).toBe("Arrival");
+  });
+
+  it("searchByTitleInWatchlist — returns empty array when no match", async () => {
+    const repo = watchlistRepository(db);
+    const results = await repo.searchByTitleInWatchlist(userId, "Nonexistent");
+    expect(results).toHaveLength(0);
+  });
+
+  it("searchByTitleInWatchlist — only searches within user's watchlist", async () => {
+    const repo = watchlistRepository(db);
+    // movie exists in DB but not in other-user's watchlist
+    const results = await repo.searchByTitleInWatchlist("other-user", "Arrival");
+    expect(results).toHaveLength(0);
+  });
+
   it("getWatchlistedMovieIds — returns correct subset", async () => {
     const repo = watchlistRepository(db);
     // user has movies[0], movies[1], movies[2]
