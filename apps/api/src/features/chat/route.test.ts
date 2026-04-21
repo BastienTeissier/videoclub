@@ -11,6 +11,7 @@ vi.mock("../../services/agents/orchestrator.js", () => ({
 
 vi.mock("../../services/agents/message-translator.js", () => ({
   agUiToAiSdk: vi.fn(() => [{ role: "user", content: "test" }]),
+  extractApprovalResponses: vi.fn(() => []),
 }));
 
 vi.mock("../../services/agents/ag-ui-stream.js", () => ({

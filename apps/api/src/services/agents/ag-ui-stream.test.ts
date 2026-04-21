@@ -95,6 +95,12 @@ describe("streamAgUiEvents", () => {
   it("maps tool-approval-request to TOOL_CALL without RESULT", async () => {
     const parts: TextStreamPart<ToolSet>[] = [
       {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "search_tmdb",
+        input: { query: "Stalker" },
+      } as TextStreamPart<ToolSet>,
+      {
         type: "tool-approval-request",
         approvalId: "ap-1",
         toolCall: {
