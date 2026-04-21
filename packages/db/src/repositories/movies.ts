@@ -17,6 +17,15 @@ function arrayIlike(column: Column, value: string): SQL {
 
 export function moviesRepository(db: Database) {
   return {
+    async findById(id: string) {
+      const [movie] = await db
+        .select()
+        .from(movies)
+        .where(eq(movies.id, id))
+        .limit(1);
+      return movie ?? null;
+    },
+
     async searchByTitle(query: string) {
       return db
         .select()
