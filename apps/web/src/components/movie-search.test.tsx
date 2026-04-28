@@ -34,6 +34,15 @@ vi.mock("@/contexts/watchlist-context", () => ({
   }),
 }));
 
+vi.mock("@/contexts/review-context", () => ({
+  useReviews: () => ({
+    getReviewRating: () => undefined,
+    upsertReview: vi.fn(),
+    deleteReview: vi.fn(),
+    refetch: vi.fn(),
+  }),
+}));
+
 const mockSetMovies = vi.fn();
 const mockSetWatchlistSurface = vi.fn();
 const mockSetClarification = vi.fn();
