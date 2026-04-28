@@ -3,4 +3,4 @@ export { agentSessionsRepository } from "./agent-sessions.js";
 export { chatMessagesRepository } from "./chat-messages.js";
 export { agentRunsRepository } from "./agent-runs.js";
 export { watchlistRepository } from "./watchlist.js";
-export { reviewsRepository } from "./reviews.js";
+export { reviewsRepository, type ReviewRow } from "./reviews.js";
