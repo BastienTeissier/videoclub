@@ -1,5 +1,6 @@
 import type { MovieDto } from "@repo/contracts";
 import { BookmarkIcon } from "./bookmark-icon";
+import { ReviewIcon } from "./review-icon";
 
 interface MovieCardProps {
   movie: MovieDto;
@@ -24,6 +25,10 @@ export function MovieCard({ movie, alwaysShowBookmark = false }: MovieCardProps)
         <BookmarkIcon
           movieId={movie.id}
           movieTitle={movie.title}
+          className={alwaysShowBookmark ? "" : "opacity-0 group-hover:opacity-100"}
+        />
+        <ReviewIcon
+          movie={movie}
           className={alwaysShowBookmark ? "" : "opacity-0 group-hover:opacity-100"}
         />
       </div>
