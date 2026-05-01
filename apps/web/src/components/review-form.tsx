@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import type { MovieDto, ReviewDto } from "@repo/contracts";
-import { upsertReviewRequestSchema } from "@repo/contracts";
 import {
   Button,
   Label,
@@ -32,11 +31,7 @@ export function ReviewForm({ movie, initialReview, onDone }: ReviewFormProps) {
   }, [initialReview]);
 
   async function handleSubmit() {
-    const parsed = upsertReviewRequestSchema.safeParse({
-      rating,
-      text: text || undefined,
-    });
-    if (!parsed.success) {
+    if (rating === undefined) {
       toast({
         variant: "destructive",
         description: "Rating is required",
@@ -46,7 +41,10 @@ export function ReviewForm({ movie, initialReview, onDone }: ReviewFormProps) {
 
     setSubmitting(true);
     try {
-      await upsertReview(movie.id, parsed.data);
+      await upsertReview(movie.id, {
+        rating,
+        text: text || undefined,
+      });
       onDone();
     } catch {
       toast({
