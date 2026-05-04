@@ -8,10 +8,10 @@ import { ReviewModal } from "./review-modal";
 
 interface ReviewIconProps {
   movie: MovieDto;
-  className?: string;
+  alwaysVisible?: boolean;
 }
 
-export function ReviewIcon({ movie, className }: ReviewIconProps) {
+export function ReviewIcon({ movie, alwaysVisible = false }: ReviewIconProps) {
   const { getReviewRating } = useReviews();
   const rating = getReviewRating(movie.id);
   const [modalOpen, setModalOpen] = useState(false);
@@ -21,12 +21,15 @@ export function ReviewIcon({ movie, className }: ReviewIconProps) {
     setModalOpen(true);
   }
 
+  const isVisible = alwaysVisible || rating !== undefined;
+  const visibilityClass = isVisible ? "" : "opacity-0 group-hover:opacity-100";
+
   return (
     <>
       <button
         type="button"
         onClick={handleClick}
-        className={`absolute bottom-2 right-2 flex h-8 items-center gap-1 rounded-full bg-background/70 px-2 text-foreground transition-opacity duration-150 hover:bg-background/90 ${className ?? ""}`}
+        className={`absolute bottom-2 right-2 flex h-8 items-center gap-1 rounded-full bg-background/70 px-2 text-foreground transition-opacity duration-150 hover:bg-background/90 ${visibilityClass}`}
         aria-label={rating ? `Edit review (${rating})` : "Add review"}
       >
         <Star
