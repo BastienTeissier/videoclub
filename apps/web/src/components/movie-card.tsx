@@ -1,23 +1,32 @@
 import type { MovieDto } from "@repo/contracts";
+import { BookmarkIcon } from "./bookmark-icon";
 
 interface MovieCardProps {
   movie: MovieDto;
+  alwaysShowBookmark?: boolean;
 }
 
-export function MovieCard({ movie }: MovieCardProps) {
+export function MovieCard({ movie, alwaysShowBookmark = false }: MovieCardProps) {
   return (
     <div className="group relative overflow-hidden rounded-lg">
-      {movie.posterUrl ? (
-        <img
-          src={`https://image.tmdb.org/t/p/w300${movie.posterUrl}`}
-          alt={movie.title}
-          className="aspect-[2/3] w-full object-cover transition-transform duration-150 group-hover:-translate-y-0.5"
+      <div className="relative">
+        {movie.posterUrl ? (
+          <img
+            src={`https://image.tmdb.org/t/p/w300${movie.posterUrl}`}
+            alt={movie.title}
+            className="aspect-[2/3] w-full object-cover transition-transform duration-150 group-hover:-translate-y-0.5"
+          />
+        ) : (
+          <div className="flex aspect-[2/3] w-full items-center justify-center bg-card text-sm text-muted">
+            No poster
+          </div>
+        )}
+        <BookmarkIcon
+          movieId={movie.id}
+          movieTitle={movie.title}
+          className={alwaysShowBookmark ? "" : "opacity-0 group-hover:opacity-100"}
         />
-      ) : (
-        <div className="flex aspect-[2/3] w-full items-center justify-center bg-card text-sm text-muted">
-          No poster
-        </div>
-      )}
+      </div>
       <div className="mt-1.5">
         <p className="truncate text-sm font-medium text-foreground">
           {movie.title}

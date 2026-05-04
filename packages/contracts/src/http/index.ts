@@ -5,8 +5,10 @@ export {
   type MovieSearchResponse,
 } from "./movie-search.js";
 export {
-  chatRequestSchema,
-  chatResponseSchema,
-  type ChatRequest,
-  type ChatResponse,
-} from "./chat.js";
+  addToWatchlistResponseSchema,
+  removeFromWatchlistResponseSchema,
+  watchlistResponseSchema,
+  type AddToWatchlistResponse,
+  type RemoveFromWatchlistResponse,
+  type WatchlistResponse,
+} from "./watchlist.js";
