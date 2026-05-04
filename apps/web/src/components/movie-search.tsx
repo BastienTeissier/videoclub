@@ -127,9 +127,12 @@ export function MovieSearch() {
       </form>
 
       <div className="mt-6">
-        {isLoading && (
-          <p className="text-sm text-muted">Thinking...</p>
-        )}
+        {isLoading &&
+          persistedMovies.length === 0 &&
+          !persistedWatchlistSurface &&
+          !clarification && (
+            <p className="text-sm text-muted">Thinking...</p>
+          )}
 
         {error && (
           <p className="text-sm text-destructive">{error}</p>
