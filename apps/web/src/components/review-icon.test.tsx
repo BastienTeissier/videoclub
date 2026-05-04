@@ -74,4 +74,26 @@ describe("ReviewIcon", () => {
     fireEvent.click(button);
     expect(screen.getByText(`Review ${movie.title}`)).toBeInTheDocument();
   });
+
+  it("rating defined → button has no opacity-0 class", () => {
+    mockGetReviewRating.mockReturnValue(4);
+    render(<ReviewIcon movie={movie} />);
+    const button = screen.getByRole("button", { name: /Edit review/ });
+    expect(button.className).not.toContain("opacity-0");
+  });
+
+  it("rating undefined and alwaysVisible unset → button has opacity-0 group-hover:opacity-100", () => {
+    mockGetReviewRating.mockReturnValue(undefined);
+    render(<ReviewIcon movie={movie} />);
+    const button = screen.getByRole("button", { name: "Add review" });
+    expect(button.className).toContain("opacity-0");
+    expect(button.className).toContain("group-hover:opacity-100");
+  });
+
+  it("rating undefined and alwaysVisible=true → button has no opacity-0 class", () => {
+    mockGetReviewRating.mockReturnValue(undefined);
+    render(<ReviewIcon movie={movie} alwaysVisible />);
+    const button = screen.getByRole("button", { name: "Add review" });
+    expect(button.className).not.toContain("opacity-0");
+  });
 });
