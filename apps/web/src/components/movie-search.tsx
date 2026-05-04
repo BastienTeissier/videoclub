@@ -12,7 +12,6 @@ import { MovieCard } from "./movie-card";
 export function MovieSearch() {
   const [query, setQuery] = useState("");
   const {
-    messages,
     isLoading,
     error,
     pendingApproval,
@@ -115,11 +114,6 @@ export function MovieSearch() {
     sendMessage(msg);
   }
 
-  // Get the latest assistant message text
-  const assistantMessages = messages.filter((m) => m.role === "assistant");
-  const lastAssistantText =
-    assistantMessages[assistantMessages.length - 1]?.content ?? null;
-
   return (
     <div className="w-full max-w-2xl mx-auto">
       <form onSubmit={handleSubmit}>
@@ -139,10 +133,6 @@ export function MovieSearch() {
 
         {error && (
           <p className="text-sm text-destructive">{error}</p>
-        )}
-
-        {lastAssistantText && (
-          <p className="text-sm text-muted mb-4">{lastAssistantText}</p>
         )}
 
         {pendingApproval &&
