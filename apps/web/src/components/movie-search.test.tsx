@@ -44,15 +44,15 @@ vi.mock("@/contexts/review-context", () => ({
 }));
 
 const mockSetMovies = vi.fn();
-const mockSetWatchlistSurface = vi.fn();
+const mockSetA2UISurface = vi.fn();
 const mockSetClarification = vi.fn();
 
 let chatResultsReturn = {
   movies: [] as MovieDto[],
-  watchlistSurface: null as { type: string; [key: string]: unknown } | null,
-  clarification: null as { action: "add" | "remove"; candidates: MovieDto[] } | null,
+  a2uiSurface: null as { type: string; [key: string]: unknown } | null,
+  clarification: null as { action: "add" | "remove" | "review"; candidates: MovieDto[] } | null,
   setMovies: mockSetMovies,
-  setWatchlistSurface: mockSetWatchlistSurface,
+  setA2UISurface: mockSetA2UISurface,
   setClarification: mockSetClarification,
 };
 
@@ -65,10 +65,10 @@ beforeEach(() => {
   hookReturn = { ...defaultHookReturn };
   chatResultsReturn = {
     movies: [],
-    watchlistSurface: null,
+    a2uiSurface: null,
     clarification: null,
     setMovies: mockSetMovies,
-    setWatchlistSurface: mockSetWatchlistSurface,
+    setA2UISurface: mockSetA2UISurface,
     setClarification: mockSetClarification,
   };
 });
@@ -180,7 +180,7 @@ describe("MovieSearch", () => {
   it("renders A2UI surface from persisted watchlist context", () => {
     chatResultsReturn = {
       ...chatResultsReturn,
-      watchlistSurface: {
+      a2uiSurface: {
         type: "watchlist-grid",
         items: [
           {
@@ -213,7 +213,7 @@ describe("MovieSearch", () => {
   it("renders watchlist error surface message from persisted context", () => {
     chatResultsReturn = {
       ...chatResultsReturn,
-      watchlistSurface: {
+      a2uiSurface: {
         type: "watchlist-grid",
         items: [],
         count: 0,

@@ -23,10 +23,10 @@ export function MovieSearch() {
   const { refetch } = useWatchlist();
   const {
     movies: persistedMovies,
-    watchlistSurface: persistedWatchlistSurface,
+    a2uiSurface: persistedA2UISurface,
     clarification,
     setMovies,
-    setWatchlistSurface,
+    setA2UISurface,
     setClarification,
   } = useChatResults();
 
@@ -63,7 +63,7 @@ export function MovieSearch() {
         "type" in tr.result,
     );
     if (watchlistResult) {
-      setWatchlistSurface(
+      setA2UISurface(
         watchlistResult.result as { type: string; [key: string]: unknown },
       );
       return;
@@ -98,7 +98,7 @@ export function MovieSearch() {
         return;
       }
     }
-  }, [toolResults, setMovies, setWatchlistSurface, setClarification, refetch]);
+  }, [toolResults, setMovies, setA2UISurface, setClarification, refetch]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -129,7 +129,7 @@ export function MovieSearch() {
       <div className="mt-6">
         {isLoading &&
           persistedMovies.length === 0 &&
-          !persistedWatchlistSurface &&
+          !persistedA2UISurface &&
           !clarification && (
             <p className="text-sm text-muted">Thinking...</p>
           )}
@@ -171,8 +171,8 @@ export function MovieSearch() {
           </div>
         )}
 
-        {persistedWatchlistSurface && (
-          <A2UIRenderer surface={persistedWatchlistSurface} />
+        {persistedA2UISurface && (
+          <A2UIRenderer surface={persistedA2UISurface} />
         )}
 
         {persistedMovies.length > 0 && (
