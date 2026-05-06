@@ -7,7 +7,9 @@ import type {
   DeleteReviewResponse,
   GetReviewResponse,
   ListReviewRatingsResponse,
+  ListReviewsResponse,
 } from "@repo/contracts";
+import { movieToDto } from "../features/tools/movie-to-dto.js";
 
 const toReviewDto = (row: ReviewRow): ReviewDto => ({
   id: row.id,
@@ -64,6 +66,15 @@ export function reviewService(db: Database) {
     async listRatings(userId: string): Promise<ListReviewRatingsResponse> {
       const rows = await reviewsRepo.listByUser(userId);
       const items = rows.map((r) => ({ movieId: r.movieId, rating: r.rating }));
+      return { items, count: items.length };
+    },
+
+    async list(userId: string): Promise<ListReviewsResponse> {
+      const rows = await reviewsRepo.listWithMoviesByUser(userId);
+      const items = rows.map((r) => ({
+        ...toReviewDto(r),
+        movie: movieToDto(r.movie),
+      }));
       return { items, count: items.length };
     },
   };

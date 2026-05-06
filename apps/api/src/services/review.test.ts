@@ -4,6 +4,7 @@ const mockUpsert = vi.fn();
 const mockDelete = vi.fn();
 const mockFindByUserAndMovie = vi.fn();
 const mockListByUser = vi.fn();
+const mockListWithMoviesByUser = vi.fn();
 const mockFindById = vi.fn();
 
 vi.mock("@repo/db", () => ({
@@ -12,6 +13,7 @@ vi.mock("@repo/db", () => ({
     delete: mockDelete,
     findByUserAndMovie: mockFindByUserAndMovie,
     listByUser: mockListByUser,
+    listWithMoviesByUser: mockListWithMoviesByUser,
   })),
   moviesRepository: vi.fn(() => ({
     findById: mockFindById,
@@ -103,5 +105,47 @@ describe("reviewService", () => {
       { movieId: "m1", rating: 4 },
       { movieId: "m2", rating: 2.5 },
     ]);
+  });
+
+  const sampleMovie = {
+    id: movieId,
+    tmdbId: 1,
+    title: "Arrival",
+    year: 2016,
+    synopsis: null,
+    genres: null,
+    cast: null,
+    directors: null,
+    runtime: null,
+    language: null,
+    posterUrl: null,
+    backdropUrl: null,
+    popularity: null,
+    releaseDate: null,
+    createdAt: new Date("2024-01-01T00:00:00Z"),
+    updatedAt: new Date("2024-01-01T00:00:00Z"),
+  };
+
+  it("list — returns items with embedded movie ordered as the repo returns", async () => {
+    mockListWithMoviesByUser.mockResolvedValue([
+      { ...sampleRow, movieId: "m1", rating: 4, movie: { ...sampleMovie, id: "m1" } },
+      { ...sampleRow, movieId: "m2", rating: 2.5, movie: { ...sampleMovie, id: "m2" } },
+    ]);
+    const service = reviewService(mockDb);
+    const result = await service.list(userId);
+    expect(result.count).toBe(2);
+    expect(result.items[0]!.movie.id).toBe("m1");
+    expect(result.items[0]!.rating).toBe(4);
+    expect(result.items[1]!.movie.id).toBe("m2");
+    expect(result.items[0]!.movie.createdAt).toBe(
+      new Date("2024-01-01T00:00:00Z").toISOString()
+    );
+  });
+
+  it("list — empty repo result returns { items: [], count: 0 }", async () => {
+    mockListWithMoviesByUser.mockResolvedValue([]);
+    const service = reviewService(mockDb);
+    const result = await service.list(userId);
+    expect(result).toEqual({ items: [], count: 0 });
   });
 });
