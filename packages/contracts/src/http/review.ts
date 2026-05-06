@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { reviewSchema } from "../domain/review.js";
+import { reviewSchema, reviewWithMovieSchema } from "../domain/review.js";
 
 export const upsertReviewRequestSchema = z.object({
   rating: z.number().min(0.5).max(5).multipleOf(0.5),
@@ -41,3 +41,10 @@ export const listReviewRatingsResponseSchema = z.object({
 export type ListReviewRatingsResponse = z.infer<
   typeof listReviewRatingsResponseSchema
 >;
+
+export const listReviewsResponseSchema = z.object({
+  items: z.array(reviewWithMovieSchema),
+  count: z.number(),
+});
+
+export type ListReviewsResponse = z.infer<typeof listReviewsResponseSchema>;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { movieSchema } from "./movie.js";
 
 export const reviewSchema = z.object({
   id: z.string().uuid(),
@@ -10,3 +11,9 @@ export const reviewSchema = z.object({
 });
 
 export type ReviewDto = z.infer<typeof reviewSchema>;
+
+export const reviewWithMovieSchema = reviewSchema.extend({
+  movie: movieSchema,
+});
+
+export type ReviewWithMovieDto = z.infer<typeof reviewWithMovieSchema>;

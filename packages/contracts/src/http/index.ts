@@ -18,9 +18,11 @@ export {
   deleteReviewResponseSchema,
   getReviewResponseSchema,
   listReviewRatingsResponseSchema,
+  listReviewsResponseSchema,
   type UpsertReviewRequest,
   type UpsertReviewResponse,
   type DeleteReviewResponse,
   type GetReviewResponse,
   type ListReviewRatingsResponse,
+  type ListReviewsResponse,
 } from "./review.js";
