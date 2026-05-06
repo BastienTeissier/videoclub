@@ -34,6 +34,10 @@ vi.mock("../../features/tools/review-add.js", () => ({
   createReviewAddTool: vi.fn(() => ({ type: "review_add_tool" })),
 }));
 
+vi.mock("../../features/tools/review-show.js", () => ({
+  createReviewShowTool: vi.fn(() => ({ type: "review_show_tool" })),
+}));
+
 const mockCreate = vi.fn();
 const mockFindBySessionId = vi.fn();
 const mockSessionCreate = vi.fn();
@@ -139,6 +143,22 @@ describe("orchestrator", () => {
       expect.objectContaining({
         tools: expect.objectContaining({
           review_add: expect.anything(),
+        }),
+      })
+    );
+  });
+
+  it("registers review_show tool", async () => {
+    await runOrchestrator({
+      db: fakeDb,
+      userId: "user-1",
+      messages: [{ role: "user", content: "test" }],
+    });
+
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.objectContaining({
+          review_show: expect.anything(),
         }),
       })
     );
