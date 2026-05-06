@@ -1,5 +1,6 @@
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { reviews, type Review } from "../schema/reviews.js";
+import { movies, type Movie } from "../schema/movies.js";
 import type { Database } from "../client/index.js";
 
 export type ReviewRow = {
@@ -91,6 +92,18 @@ export function reviewsRepository(db: Database) {
         .from(reviews)
         .where(eq(reviews.userId, userId));
       return rows.map(toReviewRow);
+    },
+
+    async listWithMoviesByUser(
+      userId: string
+    ): Promise<Array<ReviewRow & { movie: Movie }>> {
+      const rows = await db
+        .select({ review: reviews, movie: movies })
+        .from(reviews)
+        .innerJoin(movies, eq(reviews.movieId, movies.id))
+        .where(eq(reviews.userId, userId))
+        .orderBy(desc(reviews.updatedAt));
+      return rows.map((r) => ({ ...toReviewRow(r.review), movie: r.movie }));
     },
   };
 }

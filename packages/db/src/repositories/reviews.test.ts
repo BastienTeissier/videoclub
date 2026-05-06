@@ -192,4 +192,37 @@ describe("reviewsRepository", () => {
       })
     ).rejects.toThrow();
   });
+
+  it("listWithMoviesByUser — joins movie + isolates by user", async () => {
+    const repo = reviewsRepository(db);
+    await repo.upsert(otherUserId, movieIds[0]!, { rating: 1.5 });
+
+    const rows = await repo.listWithMoviesByUser(userId);
+    expect(rows.every((r) => r.userId === userId)).toBe(true);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.movie.id).toBe(row.movieId);
+      expect(typeof row.movie.title).toBe("string");
+    }
+  });
+
+  it("listWithMoviesByUser — orders by updatedAt DESC (upsert bumps to top)", async () => {
+    const repo = reviewsRepository(db);
+    await new Promise((r) => setTimeout(r, 10));
+    await repo.upsert(userId, movieIds[2]!, { rating: 4 });
+
+    const rows = await repo.listWithMoviesByUser(userId);
+    expect(rows[0]!.movieId).toBe(movieIds[2]!);
+    for (let i = 1; i < rows.length; i++) {
+      expect(rows[i - 1]!.updatedAt.getTime()).toBeGreaterThanOrEqual(
+        rows[i]!.updatedAt.getTime()
+      );
+    }
+  });
+
+  it("listWithMoviesByUser — empty when user has no reviews", async () => {
+    const repo = reviewsRepository(db);
+    const rows = await repo.listWithMoviesByUser("user-with-nothing");
+    expect(rows).toEqual([]);
+  });
 });
