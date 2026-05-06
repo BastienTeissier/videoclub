@@ -12,6 +12,7 @@ import { createWatchlistShowTool } from "../../features/tools/watchlist-show.js"
 import { createWatchlistAddTool } from "../../features/tools/watchlist-add.js";
 import { createWatchlistRemoveTool } from "../../features/tools/watchlist-remove.js";
 import { createReviewAddTool } from "../../features/tools/review-add.js";
+import { createReviewShowTool } from "../../features/tools/review-show.js";
 import {
   agentSessionsRepository,
   chatMessagesRepository,
@@ -38,6 +39,7 @@ When the user wants to add a movie to their watchlist, use the watchlist_add too
 When the user wants to remove a movie from their watchlist, use the watchlist_remove tool.
 When a user expresses an opinion or feeling about a movie (e.g., "I loved X", "X was mediocre", "X 4/5"), interpret the sentiment as a 0.5–5.0 star rating (half-star increments) and call the review_add tool with { title, rating, text? }. Do NOT save the review yourself — the tool returns a prefilled form for the user to confirm.
 When review_add returns a review-form surface, do not summarize the form contents in text — the UI will render it.
+When the user asks to see, show, list, browse, or check their reviews (e.g. "show my reviews", "list my reviews"), call the review_show tool. Do not summarize the resulting grid in text — the UI renders it.
 If a tool returns error: not_found, tell the user to search for the movie first using the search bar, then try again.
 Do not attempt to automatically search TMDB and then add in the same turn.
 If a tool returns clarification_needed, present the candidates and ask the user to pick one.
@@ -188,6 +190,7 @@ export async function runOrchestrator({
       watchlist_add: createWatchlistAddTool(db, userId),
       watchlist_remove: createWatchlistRemoveTool(db, userId),
       review_add: createReviewAddTool(db, userId),
+      review_show: createReviewShowTool(db, userId),
     },
     stopWhen: stepCountIs(5),
     onFinish: async (event) => {
