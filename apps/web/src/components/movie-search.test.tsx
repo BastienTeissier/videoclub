@@ -424,6 +424,36 @@ describe("MovieSearch", () => {
     expect(mockSetClarification).toHaveBeenCalledWith(null);
   });
 
+  it("My Reviews quick-action sends 'show my reviews'", () => {
+    render(<MovieSearch />);
+    fireEvent.click(screen.getByRole("button", { name: "My Reviews" }));
+    expect(mockSendMessage).toHaveBeenCalledWith("show my reviews");
+  });
+
+  it("review_show result with reviews-grid sets A2UI surface", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      toolResults: [
+        {
+          toolName: "review_show",
+          toolCallId: "tc-1",
+          result: {
+            type: "reviews-grid",
+            items: [],
+            count: 0,
+            message: "You haven't reviewed any movies yet.",
+          },
+        },
+      ],
+    };
+
+    render(<MovieSearch />);
+
+    expect(mockSetA2UISurface).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "reviews-grid", count: 0 }),
+    );
+  });
+
   it("clicking clarification candidate sends follow-up message with embedded movieId", () => {
     chatResultsReturn = {
       ...chatResultsReturn,

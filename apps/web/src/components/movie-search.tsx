@@ -54,10 +54,12 @@ export function MovieSearch() {
       return;
     }
 
-    // Check for A2UI surfaces (watchlist_show, review_add)
+    // Check for A2UI surfaces (watchlist_show, review_add, review_show)
     const surfaceResult = toolResults.find(
       (tr) =>
-        (tr.toolName === "watchlist_show" || tr.toolName === "review_add") &&
+        (tr.toolName === "watchlist_show" ||
+          tr.toolName === "review_add" ||
+          tr.toolName === "review_show") &&
         tr.result &&
         typeof tr.result === "object" &&
         "type" in tr.result,
@@ -133,6 +135,18 @@ export function MovieSearch() {
           className="w-full"
         />
       </form>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => sendMessage("show my reviews")}
+          disabled={isLoading}
+        >
+          My Reviews
+        </Button>
+      </div>
 
       <div className="mt-6">
         {isLoading &&
