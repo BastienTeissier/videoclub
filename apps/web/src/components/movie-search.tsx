@@ -30,8 +30,8 @@ export function MovieSearch() {
     setClarification,
   } = useChatResults();
 
-  // Track previous toolResults length to detect new results
-  const prevToolResultsRef = useRef(toolResults);
+  // Track previous toolResults to detect new results
+  const prevToolResultsRef = useRef<typeof toolResults | null>(null);
 
   // Project transient toolResults into persistent context
   useEffect(() => {
@@ -54,17 +54,17 @@ export function MovieSearch() {
       return;
     }
 
-    // Check for watchlist surface
-    const watchlistResult = toolResults.find(
+    // Check for A2UI surfaces (watchlist_show, review_add)
+    const surfaceResult = toolResults.find(
       (tr) =>
-        tr.toolName === "watchlist_show" &&
+        (tr.toolName === "watchlist_show" || tr.toolName === "review_add") &&
         tr.result &&
         typeof tr.result === "object" &&
         "type" in tr.result,
     );
-    if (watchlistResult) {
+    if (surfaceResult) {
       setA2UISurface(
-        watchlistResult.result as { type: string; [key: string]: unknown },
+        surfaceResult.result as { type: string; [key: string]: unknown },
       );
       return;
     }
@@ -72,13 +72,15 @@ export function MovieSearch() {
     // Check for clarification results
     for (const tr of toolResults) {
       if (
-        (tr.toolName === "watchlist_add" || tr.toolName === "watchlist_remove") &&
+        (tr.toolName === "watchlist_add" ||
+          tr.toolName === "watchlist_remove" ||
+          tr.toolName === "review_add") &&
         tr.result &&
         typeof tr.result === "object" &&
         "clarification_needed" in tr.result
       ) {
         const result = tr.result as unknown as {
-          action: "add" | "remove";
+          action: "add" | "remove" | "review";
           candidates: MovieDto[];
         };
         setClarification({ action: result.action, candidates: result.candidates });
@@ -109,7 +111,13 @@ export function MovieSearch() {
 
   function handleClarificationPick(movie: MovieDto) {
     const action = clarification!.action;
-    const msg = `${action === "add" ? "add" : "remove"} [movieId:${movie.id}] ${movie.title}${movie.year ? ` (${movie.year})` : ""} ${action === "add" ? "to" : "from"} my watchlist`;
+    const titleAndYear = `${movie.title}${movie.year ? ` (${movie.year})` : ""}`;
+    let msg: string;
+    if (action === "review") {
+      msg = `review [movieId:${movie.id}] ${titleAndYear}`;
+    } else {
+      msg = `${action} [movieId:${movie.id}] ${titleAndYear} ${action === "add" ? "to" : "from"} my watchlist`;
+    }
     setClarification(null);
     sendMessage(msg);
   }
