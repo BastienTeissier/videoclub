@@ -14,20 +14,32 @@ import { useReviews } from "@/contexts/review-context";
 interface ReviewFormProps {
   movie: MovieDto;
   initialReview: ReviewDto | null;
+  initialRating?: number;
+  initialText?: string;
   onDone: () => void;
 }
 
-export function ReviewForm({ movie, initialReview, onDone }: ReviewFormProps) {
+export function ReviewForm({
+  movie,
+  initialReview,
+  initialRating,
+  initialText,
+  onDone,
+}: ReviewFormProps) {
   const { upsertReview, deleteReview } = useReviews();
   const [rating, setRating] = useState<number | undefined>(
-    initialReview?.rating
+    initialReview?.rating ?? initialRating
   );
-  const [text, setText] = useState<string>(initialReview?.text ?? "");
+  const [text, setText] = useState<string>(
+    initialReview?.text ?? initialText ?? ""
+  );
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    setRating(initialReview?.rating);
-    setText(initialReview?.text ?? "");
+    if (initialReview) {
+      setRating(initialReview.rating);
+      setText(initialReview.text ?? "");
+    }
   }, [initialReview]);
 
   async function handleSubmit() {

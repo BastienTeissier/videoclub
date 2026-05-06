@@ -109,6 +109,44 @@ describe("ReviewForm", () => {
     await waitFor(() => expect(onDone).toHaveBeenCalled());
   });
 
+  it("initialRating + initialText with initialReview=null → form prefilled, no Delete button, submit uses prefilled rating", async () => {
+    render(
+      <ReviewForm
+        movie={movie}
+        initialReview={null}
+        initialRating={4}
+        initialText="great"
+        onDone={vi.fn()}
+      />
+    );
+    expect(screen.getByDisplayValue("great")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Delete" })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    await waitFor(() => {
+      expect(mockUpsert).toHaveBeenCalledWith(movie.id, {
+        rating: 4,
+        text: "great",
+      });
+    });
+  });
+
+  it("initialReview takes precedence over initialRating/initialText", () => {
+    render(
+      <ReviewForm
+        movie={movie}
+        initialReview={existingReview}
+        initialRating={2}
+        initialText="other"
+        onDone={vi.fn()}
+      />
+    );
+    expect(screen.getByDisplayValue("Great")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("other")).not.toBeInTheDocument();
+  });
+
   it("upsert rejects → destructive toast, no onDone", async () => {
     mockUpsert.mockRejectedValue(new Error("Network"));
     const onDone = vi.fn();
