@@ -1,4 +1,4 @@
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, ilike } from "drizzle-orm";
 import { reviews, type Review } from "../schema/reviews.js";
 import { movies, type Movie } from "../schema/movies.js";
 import type { Database } from "../client/index.js";
@@ -104,6 +104,39 @@ export function reviewsRepository(db: Database) {
         .where(eq(reviews.userId, userId))
         .orderBy(desc(reviews.updatedAt));
       return rows.map((r) => ({ ...toReviewRow(r.review), movie: r.movie }));
+    },
+
+    async searchReviewedMoviesByTitle(
+      userId: string,
+      title: string
+    ): Promise<Movie[]> {
+      const rows = await db
+        .select({
+          id: movies.id,
+          tmdbId: movies.tmdbId,
+          title: movies.title,
+          year: movies.year,
+          synopsis: movies.synopsis,
+          genres: movies.genres,
+          cast: movies.cast,
+          directors: movies.directors,
+          runtime: movies.runtime,
+          language: movies.language,
+          posterUrl: movies.posterUrl,
+          backdropUrl: movies.backdropUrl,
+          popularity: movies.popularity,
+          releaseDate: movies.releaseDate,
+          createdAt: movies.createdAt,
+          updatedAt: movies.updatedAt,
+        })
+        .from(reviews)
+        .innerJoin(movies, eq(reviews.movieId, movies.id))
+        .where(
+          and(eq(reviews.userId, userId), ilike(movies.title, `%${title}%`))
+        )
+        .orderBy(desc(reviews.updatedAt))
+        .limit(10);
+      return rows;
     },
   };
 }

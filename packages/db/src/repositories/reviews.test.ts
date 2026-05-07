@@ -225,4 +225,30 @@ describe("reviewsRepository", () => {
     const rows = await repo.listWithMoviesByUser("user-with-nothing");
     expect(rows).toEqual([]);
   });
+
+  it("searchReviewedMoviesByTitle — returns only the user's reviewed matches", async () => {
+    const repo = reviewsRepository(db);
+    // user reviewed: Inception (movieIds[0]), Tenet (movieIds[2])
+    // otherUser reviewed: Inception (movieIds[0]) at rating 1.5
+    const rows = await repo.searchReviewedMoviesByTitle(userId, "Inception");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(movieIds[0]);
+    expect(rows[0]!.title).toBe("Inception");
+  });
+
+  it("searchReviewedMoviesByTitle — case-insensitive partial match", async () => {
+    const repo = reviewsRepository(db);
+    const rows = await repo.searchReviewedMoviesByTitle(userId, "incep");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.title).toBe("Inception");
+  });
+
+  it("searchReviewedMoviesByTitle — empty when no reviews match", async () => {
+    const repo = reviewsRepository(db);
+    const rows = await repo.searchReviewedMoviesByTitle(
+      "user-with-nothing",
+      "Inception"
+    );
+    expect(rows).toEqual([]);
+  });
 });
