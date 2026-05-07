@@ -131,6 +131,7 @@ export function MovieSearch() {
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
+    setMovies([]);
     sendMessage(query.trim());
     setQuery("");
   }
@@ -146,6 +147,7 @@ export function MovieSearch() {
     } else {
       msg = `${action} [movieId:${movie.id}] ${titleAndYear} ${action === "add" ? "to" : "from"} my watchlist`;
     }
+    setMovies([]);
     setClarification(null);
     sendMessage(msg);
   }
@@ -167,7 +169,10 @@ export function MovieSearch() {
           type="button"
           variant="secondary"
           size="sm"
-          onClick={() => sendMessage("show my reviews")}
+          onClick={() => {
+            setMovies([]);
+            sendMessage("show my reviews");
+          }}
           disabled={isLoading}
         >
           My Reviews

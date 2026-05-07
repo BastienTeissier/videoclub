@@ -91,6 +91,51 @@ describe("MovieSearch", () => {
     expect(mockSendMessage).toHaveBeenCalledWith("Spielberg movies");
   });
 
+  it("submitting a new prompt clears persisted movies before sending", () => {
+    chatResultsReturn = {
+      ...chatResultsReturn,
+      movies: [
+        {
+          id: "uuid-prev",
+          tmdbId: 999,
+          title: "Previous",
+          year: 2000,
+          synopsis: null,
+          genres: null,
+          cast: null,
+          directors: null,
+          runtime: null,
+          language: null,
+          posterUrl: null,
+          backdropUrl: null,
+          popularity: null,
+          releaseDate: null,
+          createdAt: "2024-01-01T00:00:00.000Z",
+          updatedAt: "2024-01-01T00:00:00.000Z",
+        },
+      ],
+    };
+
+    render(<MovieSearch />);
+    const input = screen.getByPlaceholderText(
+      "what do you want to watch? Try: check my watchlist",
+    );
+
+    fireEvent.change(input, { target: { value: "Spielberg movies" } });
+    fireEvent.submit(input.closest("form")!);
+
+    expect(mockSetMovies).toHaveBeenCalledWith([]);
+    expect(mockSendMessage).toHaveBeenCalledWith("Spielberg movies");
+  });
+
+  it("My Reviews button clears persisted movies before sending", () => {
+    render(<MovieSearch />);
+    fireEvent.click(screen.getByRole("button", { name: "My Reviews" }));
+
+    expect(mockSetMovies).toHaveBeenCalledWith([]);
+    expect(mockSendMessage).toHaveBeenCalledWith("show my reviews");
+  });
+
   it("shows streaming text response", () => {
     hookReturn = {
       ...defaultHookReturn,
