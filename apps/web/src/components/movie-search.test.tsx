@@ -34,12 +34,14 @@ vi.mock("@/contexts/watchlist-context", () => ({
   }),
 }));
 
+const mockRefetchReviews = vi.fn();
+
 vi.mock("@/contexts/review-context", () => ({
   useReviews: () => ({
     getReviewRating: () => undefined,
     upsertReview: vi.fn(),
     deleteReview: vi.fn(),
-    refetch: vi.fn(),
+    refetch: mockRefetchReviews,
   }),
 }));
 
@@ -50,7 +52,10 @@ const mockSetClarification = vi.fn();
 let chatResultsReturn = {
   movies: [] as MovieDto[],
   a2uiSurface: null as { type: string; [key: string]: unknown } | null,
-  clarification: null as { action: "add" | "remove" | "review"; candidates: MovieDto[] } | null,
+  clarification: null as {
+    action: "add" | "remove" | "review" | "review-delete";
+    candidates: MovieDto[];
+  } | null,
   setMovies: mockSetMovies,
   setA2UISurface: mockSetA2UISurface,
   setClarification: mockSetClarification,
@@ -452,6 +457,145 @@ describe("MovieSearch", () => {
     expect(mockSetA2UISurface).toHaveBeenCalledWith(
       expect.objectContaining({ type: "reviews-grid", count: 0 }),
     );
+  });
+
+  it("review_delete clarification_needed sets clarification with action=review-delete", () => {
+    const candidates = [
+      {
+        id: "uuid-d1",
+        tmdbId: 11,
+        title: "Dune",
+        year: 1984,
+        synopsis: null,
+        genres: null,
+        cast: null,
+        directors: null,
+        runtime: null,
+        language: null,
+        posterUrl: null,
+        backdropUrl: null,
+        popularity: null,
+        releaseDate: null,
+        createdAt: "2024-01-01T00:00:00.000Z",
+        updatedAt: "2024-01-01T00:00:00.000Z",
+      },
+      {
+        id: "uuid-d2",
+        tmdbId: 12,
+        title: "Dune",
+        year: 2021,
+        synopsis: null,
+        genres: null,
+        cast: null,
+        directors: null,
+        runtime: null,
+        language: null,
+        posterUrl: null,
+        backdropUrl: null,
+        popularity: null,
+        releaseDate: null,
+        createdAt: "2024-01-01T00:00:00.000Z",
+        updatedAt: "2024-01-01T00:00:00.000Z",
+      },
+    ];
+
+    hookReturn = {
+      ...defaultHookReturn,
+      toolResults: [
+        {
+          toolName: "review_delete",
+          toolCallId: "tc-1",
+          result: {
+            clarification_needed: true,
+            action: "review-delete",
+            candidates,
+          },
+        },
+      ],
+    };
+
+    render(<MovieSearch />);
+
+    expect(mockSetClarification).toHaveBeenCalledWith({
+      action: "review-delete",
+      candidates,
+    });
+  });
+
+  it("clicking review-delete clarification candidate sends delete follow-up", () => {
+    chatResultsReturn = {
+      ...chatResultsReturn,
+      clarification: {
+        action: "review-delete",
+        candidates: [
+          {
+            id: "uuid-d2",
+            tmdbId: 12,
+            title: "Dune",
+            year: 2021,
+            synopsis: null,
+            genres: null,
+            cast: null,
+            directors: null,
+            runtime: null,
+            language: null,
+            posterUrl: null,
+            backdropUrl: null,
+            popularity: null,
+            releaseDate: null,
+            createdAt: "2024-01-01T00:00:00.000Z",
+            updatedAt: "2024-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+    };
+
+    render(<MovieSearch />);
+    fireEvent.click(screen.getByText("Dune (2021)"));
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      "delete my review of [movieId:uuid-d2] Dune (2021)",
+    );
+    expect(mockSetClarification).toHaveBeenCalledWith(null);
+  });
+
+  it("review_delete success result with deleted:true triggers useReviews refetch", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      toolResults: [
+        {
+          toolName: "review_delete",
+          toolCallId: "tc-1",
+          result: {
+            deleted: true,
+            message: "Review deleted for Inception",
+            movieId: "uuid-1",
+            movie: {
+              id: "uuid-1",
+              tmdbId: 1,
+              title: "Inception",
+              year: 2010,
+              synopsis: null,
+              genres: null,
+              cast: null,
+              directors: null,
+              runtime: null,
+              language: null,
+              posterUrl: null,
+              backdropUrl: null,
+              popularity: null,
+              releaseDate: null,
+              createdAt: "2024-01-01T00:00:00.000Z",
+              updatedAt: "2024-01-01T00:00:00.000Z",
+            },
+          },
+        },
+      ],
+    };
+
+    render(<MovieSearch />);
+
+    expect(mockRefetchReviews).toHaveBeenCalledTimes(1);
   });
 
   it("clicking clarification candidate sends follow-up message with embedded movieId", () => {

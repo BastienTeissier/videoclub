@@ -5,6 +5,7 @@ import { Input, Button } from "@repo/ui";
 import type { MovieDto } from "@repo/contracts";
 import { useAgentChat } from "@/hooks/use-agent-chat";
 import { useWatchlist } from "@/contexts/watchlist-context";
+import { useReviews } from "@/contexts/review-context";
 import { useChatResults } from "@/contexts/chat-results-context";
 import { A2UIRenderer } from "@/lib/a2ui/registry";
 import { MovieCard } from "./movie-card";
@@ -21,6 +22,7 @@ export function MovieSearch() {
   } = useAgentChat();
 
   const { refetch } = useWatchlist();
+  const { refetch: refetchReviews } = useReviews();
   const {
     movies: persistedMovies,
     a2uiSurface: persistedA2UISurface,
@@ -76,13 +78,14 @@ export function MovieSearch() {
       if (
         (tr.toolName === "watchlist_add" ||
           tr.toolName === "watchlist_remove" ||
-          tr.toolName === "review_add") &&
+          tr.toolName === "review_add" ||
+          tr.toolName === "review_delete") &&
         tr.result &&
         typeof tr.result === "object" &&
         "clarification_needed" in tr.result
       ) {
         const result = tr.result as unknown as {
-          action: "add" | "remove" | "review";
+          action: "add" | "remove" | "review" | "review-delete";
           candidates: MovieDto[];
         };
         setClarification({ action: result.action, candidates: result.candidates });
@@ -102,7 +105,28 @@ export function MovieSearch() {
         return;
       }
     }
-  }, [toolResults, setMovies, setA2UISurface, setClarification, refetch]);
+
+    // Check for successful review_delete → refetch reviews
+    for (const tr of toolResults) {
+      if (
+        tr.toolName === "review_delete" &&
+        tr.result &&
+        typeof tr.result === "object" &&
+        "deleted" in tr.result &&
+        (tr.result as { deleted?: boolean }).deleted === true
+      ) {
+        refetchReviews();
+        return;
+      }
+    }
+  }, [
+    toolResults,
+    setMovies,
+    setA2UISurface,
+    setClarification,
+    refetch,
+    refetchReviews,
+  ]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -117,6 +141,8 @@ export function MovieSearch() {
     let msg: string;
     if (action === "review") {
       msg = `review [movieId:${movie.id}] ${titleAndYear}`;
+    } else if (action === "review-delete") {
+      msg = `delete my review of [movieId:${movie.id}] ${titleAndYear}`;
     } else {
       msg = `${action} [movieId:${movie.id}] ${titleAndYear} ${action === "add" ? "to" : "from"} my watchlist`;
     }
