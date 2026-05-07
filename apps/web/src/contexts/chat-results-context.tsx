@@ -9,7 +9,7 @@ import {
 import type { MovieDto } from "@repo/contracts";
 
 interface ClarificationState {
-  action: "add" | "remove" | "review";
+  action: "add" | "remove" | "review" | "review-delete";
   candidates: MovieDto[];
 }
 
