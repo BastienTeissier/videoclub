@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import type { ReviewsGridSurface } from "@repo/contracts";
+import type { ComponentNode } from "@repo/contracts";
 import { ReviewsGrid } from "./reviews-grid";
+import { applyMessage, clearAllSurfaces } from "../store";
 
 vi.mock("@/contexts/watchlist-context", () => ({
   useWatchlist: () => ({
@@ -56,22 +57,32 @@ const fakeReview = (
   movie: fakeMovie(id),
 });
 
-describe("ReviewsGrid", () => {
-  it("renders header with count", () => {
-    const data: ReviewsGridSurface = {
-      type: "reviews-grid",
-      items: [fakeReview(1), fakeReview(2)],
-      count: 2,
-    };
+const node: ComponentNode = {
+  id: "grid",
+  component: "ReviewsGrid",
+  data: { path: "/state" },
+};
 
-    render(<ReviewsGrid data={data} />);
+function seed(state: { items: ReturnType<typeof fakeReview>[]; state: "ok" | "empty" | "error"; message?: string }) {
+  applyMessage({ createSurface: { surfaceId: "reviews", catalogId: "videoclub" } });
+  applyMessage({
+    updateDataModel: { surfaceId: "reviews", path: "/state", value: state },
+  });
+}
 
+describe("ReviewsGrid (protocol)", () => {
+  beforeEach(() => {
+    clearAllSurfaces();
+  });
+
+  it("renders header with count when state=ok", () => {
+    seed({ items: [fakeReview(1), fakeReview(2)], state: "ok" });
+    render(<ReviewsGrid node={node} surfaceId="reviews" />);
     expect(screen.getByText("My Reviews (2)")).toBeInTheDocument();
   });
 
-  it("renders rating value, text excerpt, and formatted date for each item", () => {
-    const data: ReviewsGridSurface = {
-      type: "reviews-grid",
+  it("renders rating value, text excerpt, and formatted date", () => {
+    seed({
       items: [
         fakeReview(1, {
           rating: 4.5,
@@ -79,55 +90,41 @@ describe("ReviewsGrid", () => {
           updatedAt: "2024-01-15T12:00:00.000Z",
         }),
       ],
-      count: 1,
-    };
-
-    render(<ReviewsGrid data={data} />);
-
+      state: "ok",
+    });
+    render(<ReviewsGrid node={node} surfaceId="reviews" />);
     expect(screen.getByText("Loved every minute of it")).toBeInTheDocument();
     expect(screen.getByText("4.5")).toBeInTheDocument();
     expect(screen.getByText("Jan 15, 2024")).toBeInTheDocument();
   });
 
   it("omits text paragraph when item.text is null", () => {
-    const data: ReviewsGridSurface = {
-      type: "reviews-grid",
-      items: [fakeReview(1, { text: null })],
-      count: 1,
-    };
-
-    const { container } = render(<ReviewsGrid data={data} />);
+    seed({ items: [fakeReview(1, { text: null })], state: "ok" });
+    const { container } = render(<ReviewsGrid node={node} surfaceId="reviews" />);
     expect(container.querySelector(".line-clamp-2")).toBeNull();
   });
 
-  it("renders empty-state message", () => {
-    const data: ReviewsGridSurface = {
-      type: "reviews-grid",
+  it("renders empty-state message when state=empty", () => {
+    seed({
       items: [],
-      count: 0,
+      state: "empty",
       message: "You haven't reviewed any movies yet.",
-    };
-
-    render(<ReviewsGrid data={data} />);
-
+    });
+    render(<ReviewsGrid node={node} surfaceId="reviews" />);
     expect(
       screen.getByText("You haven't reviewed any movies yet."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/My Reviews/)).not.toBeInTheDocument();
   });
 
-  it("renders error message without grid", () => {
-    const data: ReviewsGridSurface = {
-      type: "reviews-grid",
+  it("renders error message when state=error", () => {
+    seed({
       items: [],
-      count: 0,
-      error: true,
+      state: "error",
       message:
         "Sorry, I couldn't load your reviews right now. Please try again.",
-    };
-
-    render(<ReviewsGrid data={data} />);
-
+    });
+    render(<ReviewsGrid node={node} surfaceId="reviews" />);
     expect(
       screen.getByText(
         "Sorry, I couldn't load your reviews right now. Please try again.",

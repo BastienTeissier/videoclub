@@ -1,6 +1,32 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { A2UIRenderer } from "./registry";
+import type { A2UIMessage } from "@repo/contracts";
+import { applyMessage, clearAllSurfaces } from "./store";
+
+function discoveryMessages(movies: ReturnType<typeof fakeMovie>[]): A2UIMessage[] {
+  return [
+    { createSurface: { surfaceId: "discovery", catalogId: "videoclub" } },
+    {
+      updateComponents: {
+        surfaceId: "discovery",
+        components: [
+          { id: "root", component: "Column", children: ["filters", "grid"] },
+          { id: "filters", component: "MovieFilterPanel", data: { path: "/filters" } },
+          { id: "grid", component: "Skeleton" },
+        ],
+      },
+    },
+    { updateDataModel: { surfaceId: "discovery", path: "/filters", value: { genres: ["Comedy"] } } },
+    {
+      updateComponents: {
+        surfaceId: "discovery",
+        components: [{ id: "grid", component: "MovieGrid", data: { path: "/movies" } }],
+      },
+    },
+    { updateDataModel: { surfaceId: "discovery", path: "/movies", value: movies } },
+  ];
+}
 
 vi.mock("@/contexts/watchlist-context", () => ({
   useWatchlist: () => ({
@@ -15,6 +41,17 @@ vi.mock("@/contexts/review-context", () => ({
     upsertReview: vi.fn(),
     deleteReview: vi.fn(),
     refetch: vi.fn(),
+  }),
+}));
+
+vi.mock("@/contexts/chat-results-context", () => ({
+  useChatResults: () => ({
+    movies: [],
+    a2uiSurface: null,
+    clarification: null,
+    setMovies: vi.fn(),
+    setA2UISurface: vi.fn(),
+    setClarification: vi.fn(),
   }),
 }));
 
@@ -42,45 +79,77 @@ const fakeMovie = (id: number) => ({
   updatedAt: "2024-01-01T00:00:00.000Z",
 });
 
-describe("A2UIRenderer", () => {
-  it("renders matching component for known surface type", () => {
-    render(
-      <A2UIRenderer
-        surface={{
-          type: "watchlist-grid",
-          items: [fakeMovie(1)],
-          count: 1,
-        }}
-      />,
-    );
-
-    expect(screen.getByText("My Watchlist (1)")).toBeInTheDocument();
+describe("A2UIRenderer (protocol)", () => {
+  beforeEach(() => {
+    clearAllSurfaces();
   });
 
-  it("returns null for unknown surface type", () => {
-    const { container } = render(
-      <A2UIRenderer surface={{ type: "unknown-surface" }} />,
-    );
+  it("renders skeleton then MovieGrid through a recorded discovery message sequence", () => {
+    const messages = discoveryMessages([fakeMovie(1), fakeMovie(2)]);
 
+    // Apply messages up to skeleton frame (first three)
+    for (let i = 0; i < 3; i++) applyMessage(messages[i]!);
+
+    const { rerender } = render(<A2UIRenderer surfaceId="discovery" />);
+    // Skeleton present (no movie cards yet)
+    expect(screen.queryByText("Movie 1")).not.toBeInTheDocument();
+    expect(screen.getByText("Comedy")).toBeInTheDocument();
+
+    // Apply remaining messages: real grid + /movies
+    for (let i = 3; i < messages.length; i++) applyMessage(messages[i]!);
+    rerender(<A2UIRenderer surfaceId="discovery" />);
+
+    expect(screen.getByText("Movie 1")).toBeInTheDocument();
+    expect(screen.getByText("Movie 2")).toBeInTheDocument();
+  });
+
+  it("renders nothing when surfaceId has no surface", () => {
+    const { container } = render(<A2UIRenderer surfaceId="ghost" />);
     expect(container.innerHTML).toBe("");
   });
 
-  it("delegates rendering to the matched component", () => {
+  it("unknown component name skips that node, sibling nodes still render", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    applyMessage({
+      createSurface: { surfaceId: "x", catalogId: "videoclub" },
+    });
+    applyMessage({
+      updateComponents: {
+        surfaceId: "x",
+        components: [
+          { id: "root", component: "Column", children: ["a", "b"] },
+          { id: "a", component: "FooBar" },
+          { id: "b", component: "Skeleton" },
+        ],
+      },
+    });
+
+    render(<A2UIRenderer surfaceId="x" />);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+describe("A2UIRenderer (tagged-union review-form)", () => {
+  it("renders the existing review form for type=review-form", () => {
     render(
       <A2UIRenderer
         surface={{
-          type: "watchlist-grid",
-          items: [],
-          count: 0,
-          message: "Your watchlist is empty. Search for movies to get started!",
+          type: "review-form",
+          movie: fakeMovie(1),
+          rating: 4,
+          text: "test",
         }}
       />,
     );
+    // ReviewForm renders a heading or button — check for the movie title which appears in the form
+    expect(screen.getByText("Movie 1")).toBeInTheDocument();
+  });
 
-    expect(
-      screen.getByText(
-        "Your watchlist is empty. Search for movies to get started!",
-      ),
-    ).toBeInTheDocument();
+  it("returns nothing for unknown tagged-union type", () => {
+    const { container } = render(
+      <A2UIRenderer surface={{ type: "unknown-surface" }} />,
+    );
+    expect(container.innerHTML).toBe("");
   });
 });

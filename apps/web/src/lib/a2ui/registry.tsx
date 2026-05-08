@@ -1,24 +1,39 @@
 "use client";
 
-import { WatchlistGrid } from "./renderers/watchlist-grid";
 import { ReviewForm } from "./renderers/review-form";
-import { ReviewsGrid } from "./renderers/reviews-grid";
+import { useA2UISurface } from "./store";
+import { renderComponent } from "./catalog";
 
-type RendererComponent = React.ComponentType<{ data: never }>;
-
-const registry: Record<string, RendererComponent> = {
-  "watchlist-grid": WatchlistGrid as RendererComponent,
-  "review-form": ReviewForm as RendererComponent,
-  "reviews-grid": ReviewsGrid as RendererComponent,
-};
-
-interface A2UIRendererProps {
+interface TaggedUnionRendererProps {
   surface: { type: string; [key: string]: unknown };
 }
 
-export function A2UIRenderer({ surface }: A2UIRendererProps) {
-  const Component = registry[surface.type];
-  if (!Component) return null;
+interface ProtocolRendererProps {
+  surfaceId: string;
+}
 
-  return <Component data={surface as never} />;
+type A2UIRendererProps = TaggedUnionRendererProps | ProtocolRendererProps;
+
+function isProtocolProps(p: A2UIRendererProps): p is ProtocolRendererProps {
+  return "surfaceId" in p;
+}
+
+export function A2UIRenderer(props: A2UIRendererProps) {
+  if (isProtocolProps(props)) {
+    return <ProtocolSurface surfaceId={props.surfaceId} />;
+  }
+  return <TaggedUnion surface={props.surface} />;
+}
+
+function ProtocolSurface({ surfaceId }: { surfaceId: string }) {
+  const surface = useA2UISurface(surfaceId);
+  if (!surface) return null;
+  return <>{renderComponent(surface.components[surface.rootId], surfaceId)}</>;
+}
+
+function TaggedUnion({ surface }: TaggedUnionRendererProps) {
+  if (surface.type === "review-form") {
+    return <ReviewForm data={surface as never} />;
+  }
+  return null;
 }

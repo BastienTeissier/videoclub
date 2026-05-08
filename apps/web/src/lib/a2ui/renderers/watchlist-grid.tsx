@@ -1,25 +1,35 @@
 "use client";
 
-import type { WatchlistGridSurface } from "@repo/contracts";
+import type { MovieDto } from "@repo/contracts";
 import { useWatchlist } from "@/contexts/watchlist-context";
 import { MovieCard } from "@/components/movie-card";
+import { useA2UISurface } from "../store";
+import { get } from "../json-pointer";
+import type { RendererProps } from "../catalog";
 
-interface WatchlistGridProps {
-  data: WatchlistGridSurface;
+interface GridState {
+  items: MovieDto[];
+  state: "ok" | "empty" | "error";
+  message?: string;
 }
 
-export function WatchlistGrid({ data }: WatchlistGridProps) {
+export function WatchlistGrid({ node, surfaceId }: RendererProps) {
   const { isInWatchlist } = useWatchlist();
+  const surface = useA2UISurface(surfaceId);
+  const path = node.data?.path;
+  const state = path
+    ? (get(surface?.dataModel, path) as GridState | undefined)
+    : undefined;
 
-  if (data.error) {
-    return <p className="text-sm text-destructive">{data.message}</p>;
+  if (!state) return null;
+  if (state.state === "error") {
+    return <p className="text-sm text-destructive">{state.message}</p>;
+  }
+  if (state.state === "empty") {
+    return <p className="text-sm text-muted">{state.message}</p>;
   }
 
-  if (data.items.length === 0) {
-    return <p className="text-sm text-muted">{data.message}</p>;
-  }
-
-  const activeItems = data.items.filter((item) => isInWatchlist(item.id));
+  const activeItems = state.items.filter((item) => isInWatchlist(item.id));
   const count = activeItems.length;
 
   return (
