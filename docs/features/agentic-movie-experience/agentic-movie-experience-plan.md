@@ -10,7 +10,7 @@
 - **CAN** let the LLM pick `view: "grid" | "comparison" | "night-plan"` via tool argument; visible in `TOOL_CALL_ARGS`
 - **CAN** capture viewing preferences (`genres`, `maxRuntime`, `moods`, `notes[]`) via `update_preferences` tool; emit `STATE_SNAPSHOT` at run start, `STATE_DELTA` per update (JSON Patch)
 - **CAN** apply memory silently on follow-up queries by injecting it into the system prompt
-- **CAN** propose a movie-night plan, finish run with `outcome: interrupt`, render schema-driven approval UI, persist on approve with edited `reason`
+- **CAN** propose a movie-night plan, finish run with `RUN_FINISHED.result = { type: "interrupt", ... }` (AG-UI `@0.0.48` shape), render schema-driven approval UI, persist on approve with edited `reason`
 - **CAN** invoke client-side fire-and-forget tools (`showMovieDetails`, `highlightComparisonCriteria`)
 - **CAN** toggle Developer Inspector (Cmd+I); show events, activity timeline, memory side-by-side
 - **CAN** replay Prompt 1 deterministically via `DEMO_MODE_FIXTURES`
@@ -20,11 +20,11 @@
 - **CANNOT** discover capabilities at runtime (slide-only)
 
 **Business Rules**:
-- Memory keyed per-session, hydrated from latest user session at run start (`agentSessions.findLatestByUserId`)
+- Memory stored on `agent_sessions.viewing_preferences` and written to the current session; when creating a new session, seed it from the previous latest session for that user before it can become the "latest empty" session
 - `notes` capped at 8 entries, FIFO eviction
 - Unknown component name in `updateComponents` → no-op + inspector warning, no crash
-- Invalid `view` value → fallback to `"grid"` + `RUN_ERROR` warning
-- HITL approval round-trip: `RUN_FINISHED { outcome: interrupt, interrupts: [{ id, reason, message, proposed, responseSchema }] }` → user response in next run's tool message → resume
+- Invalid `view` value → fallback to `"grid"` + `CUSTOM { name: "warning", value: { code: "invalid-view", ... } }`; do not emit `RUN_ERROR` for nonfatal warnings
+- HITL approval round-trip: `RUN_FINISHED { result: { type: "interrupt", interrupts: [{ id: toolCallRecordId, reason, message, proposed, responseSchema }] } }` → user response in next run request/body → resume by `interruptId`, not by tool name
 - `search_tmdb` HITL migrated to the same interrupt pattern (no behavior regression)
 - `review-form` keeps tagged-union dispatch (intentional baseline)
 - Inspector caps display at most-recent ~200 events
@@ -44,7 +44,7 @@ Add column:
 |--------|------|-------------|
 | `viewing_preferences` | jsonb | NOT NULL, default `'{}'::jsonb` |
 
-Stores `ViewingPreferences`. Hydrated via `agentSessionsRepository.findLatestByUserId(userId)` at run start (existing method). Existing unused `context` JSONB column stays untouched.
+Stores `ViewingPreferences` for the current agent session. On run start, the orchestrator must load the user's latest existing preferences **before** creating a new session; a newly created session is seeded with that snapshot so memory persists across browser sessions without accidentally treating the new empty row as the source of truth. Existing unused `context` JSONB column stays untouched.
 
 ### New Entity: `movie_night_plans`
 
@@ -85,10 +85,10 @@ In `packages/contracts/src/agent/viewing-preferences.ts` 🟢:
 - *(`region` explicitly out of scope — not in schema, not in prompt)*
 
 In `packages/contracts/src/agent/interrupts.ts` 🟢:
-- `interruptOutcomeSchema` — `{ type: "interrupt", interrupts: Interrupt[] }`
+- `interruptRunFinishedResultSchema` — `{ type: "interrupt", interrupts: Interrupt[] }` (carried in AG-UI `RUN_FINISHED.result` for installed `@ag-ui/core@0.0.48`; do not use a top-level `outcome` field unless AG-UI is upgraded and the plan is updated)
 - `interruptSchema` — `{ id, reason, message, proposed: unknown, responseSchema: JsonSchema }`
 - `commitMovieNightProposedSchema` — `{ pickedMovieId, backupMovieIds: string[], reason: string }`
-- `commitMovieNightResponseSchema` — `{ approved: boolean, editedReason?: string }`
+- `commitMovieNightResponseSchema` — `{ approved: boolean, editedReason?: string }`; server uses `editedReason ?? proposed.reason`, never `response.reason`
 
 In `packages/contracts/src/http/movie-night.ts` 🟢:
 - `movieNightPlanSchema` — `{ id, userId, runId, pickedMovieId, backupMovieIds, reason, createdAt }`
@@ -121,7 +121,7 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 
 **A4.** `repositories/movie-night-plans.ts` 🟢 — `create({ userId, runId, pickedMovieId, backupMovieIds, reason })`; `findByUser(userId)`. Pattern: `repositories/watchlist.ts`.
 
-**A5.** `repositories/agent-sessions.ts` 🟡 — add `getViewingPreferences(userId)`, `setViewingPreferences(userId, prefs)`, `applyPreferencesPatch(userId, patch)` (load → merge with notes-cap-8 + structured overwrite → save → return new state).
+**A5.** `repositories/agent-sessions.ts` 🟡 — add `create(userId, initialViewingPreferences?)`, `findLatestViewingPreferencesByUserId(userId)`, `getViewingPreferences(sessionId)`, `setViewingPreferences(sessionId, prefs)`, `applyPreferencesPatch(sessionId, patch)` (load current session → merge with notes-cap-8 + structured overwrite/clear → save → return new state). Avoid write-by-`userId`; a new empty session must not overwrite older preferences before it is seeded.
 
 **A6.** `repositories/index.ts` 🟡 — re-export `movieNightPlansRepository`.
 
@@ -150,7 +150,7 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 - `watchlistGridMessages({ items, message? })`
 - `reviewsGridMessages({ items, message? })`
 
-**C2.** `services/agents/memory.ts` 🟢 — `loadMemory(db, userId)`, `applyPreferencesPatch(db, userId, patch)`, `formatMemoryForSystemPrompt(prefs)` (stable structured serialization).
+**C2.** `services/agents/memory.ts` 🟢 — `loadLatestMemoryForUser(db, userId)`, `loadMemory(db, sessionId)`, `applyPreferencesPatch(db, sessionId, patch)`, `formatMemoryForSystemPrompt(prefs)` (stable structured serialization).
 
 **C3.** `services/agents/demo-fixtures.ts` 🟢 — `getFixture(prompt)` keyed on lowercased trimmed prompt; covers the 4 scripted prompts.
 
@@ -158,23 +158,25 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 - After `RUN_STARTED`: emit `STATE_SNAPSHOT { snapshot: memory }` (caller passes via options)
 - On `tool-result` for `update_preferences`: emit `STATE_DELTA { delta: jsonPatchOps }` (output is `{ jsonPatchOps, snapshot }`)
 - On `tool-result` carrying `a2uiMessages`: for each, optional `await sleep(DEMO_MODE_SLEEP)`, then emit `CUSTOM { name: "a2ui", value: msg }`
-- Wrap each tool call with `STEP_STARTED { name: stepLabelFor(toolName) }` / `STEP_FINISHED`
+- Strip `a2uiMessages` from `TOOL_CALL_RESULT` content before it is added to AG-UI messages, so later LLM turns do not receive UI protocol noise
+- Wrap each tool call with `STEP_STARTED { stepName: stepLabelFor(toolName) }` / `STEP_FINISHED { stepName: ... }` (installed AG-UI field is `stepName`, not `name`)
 - Synthetic `"Parsing intent"` step opens at run start, closes at first `tool-call` or `text-delta`
-- HITL: when stream ends with a tool call awaiting approval, emit `RUN_FINISHED { outcome: { type: "interrupt", interrupts: [buildInterrupt(toolName, input)] } }` instead of plain `RUN_FINISHED`
+- HITL: when stream ends with a tool call awaiting approval, persist/create the pending `tool_calls` row if needed and emit `RUN_FINISHED { result: { type: "interrupt", interrupts: [buildInterrupt(toolCallRecordId, toolName, input)] } }` instead of plain `RUN_FINISHED`
+- Nonfatal warnings (invalid `view`, fixture miss, catalog drift) emit `CUSTOM { name: "warning", value: { code, message, ... } }`; reserve `RUN_ERROR` for terminal run failure only
 
 `stepLabelFor` map: `search_movies` → "Searching local catalog"; `search_tmdb` → "Searching TMDB"; `watchlist_show` → "Loading your watchlist"; `watchlist_add/remove` → "Updating watchlist"; `review_add` → "Preparing review form"; `review_show` → "Loading your reviews"; `update_preferences` → "Updating memory"; `commit_movie_night` → "Committing tonight's plan"; `show_movie_details` → "Opening details"; `highlight_comparison_criteria` → "Highlighting columns"; `discovery` → "Building discovery surface".
 
-**C5.** `services/agents/orchestrator.ts` 🟡 — hydrate memory at run start; inject `formatMemoryForSystemPrompt(memory)` into system prompt suffix; pass `memory` to `streamAgUiEvents` options; register new tools (`discovery`, `update_preferences`, `commit_movie_night`, `show_movie_details`, `highlight_comparison_criteria`); refactor `runApprovedTool` → `runResumedRun(db, sessionId, userId, toolName, response)` (generic interrupt resume — for `commit_movie_night`, calls `movieNightService.commit(...)` with `response.editedReason ?? response.reason`); if `DEMO_MODE_FIXTURES=true`, short-circuit `streamText` to a fixture-driven async iterable yielding recorded `tool-call`/`tool-result` parts.
+**C5.** `services/agents/orchestrator.ts` 🟡 — before session creation, load the latest existing viewing preferences for `userId`; create new sessions seeded with that snapshot; inject `formatMemoryForSystemPrompt(memory)` into system prompt suffix; pass `memory` to `streamAgUiEvents` options; register new tools (`discovery`, `update_preferences`, `commit_movie_night`, `show_movie_details`, `highlight_comparison_criteria`); refactor `runApprovedTool` → `runResumedRun(db, sessionId, userId, interruptId, response)` (generic interrupt resume by pending `tool_calls.id` — for `commit_movie_night`, validate response, reject double-submit if pending output is already set, and call `movieNightService.commit(...)` with `response.editedReason ?? proposed.reason`); if `DEMO_MODE_FIXTURES=true`, short-circuit `streamText` to a fixture-driven async iterable yielding recorded `tool-call`/`tool-result` parts.
 
-**C6.** `services/agents/message-translator.ts` 🟡 — generalize `extractApprovalResponses` beyond search_tmdb; parse JSON content as `{ approved, ...rest }`; surface `editedReason`.
+**C6.** `services/agents/message-translator.ts` 🟡 — generalize `extractApprovalResponses` beyond `search_tmdb`; parse JSON content as `{ approved, interruptId, ...rest }`; surface `editedReason`; when translating AG-UI tool messages back to AI SDK `ModelMessage`, recover the original `toolName` from the prior assistant tool call instead of emitting `toolName: ""`.
 
 **C7.** `services/movie-night.ts` 🟢 — `commit({ db, userId, runId, pickedMovieId, backupMovieIds, reason })` → inserts row.
 
-**C8.** `features/tools/update-preferences.ts` 🟢 — AI SDK tool. Input: `viewingPreferencesPatchSchema`. Execute → `applyPreferencesPatch(db, userId, patch)` → returns `{ jsonPatchOps, snapshot }`. `needsApproval: false`.
+**C8.** `features/tools/update-preferences.ts` 🟢 — AI SDK tool. Input: `viewingPreferencesPatchSchema`. Execute → `applyPreferencesPatch(db, sessionId, patch)` for the current seeded session → returns `{ jsonPatchOps, snapshot }`. `needsApproval: false`.
 
 **C9.** `features/tools/commit-movie-night.ts` 🟢 — AI SDK tool. Input: `{ pickedMovieId, backupMovieIds, reason }`. `needsApproval: true`. Execute unreachable on first pass; on resume, called by `runResumedRun` with user-edited fields.
 
-**C10.** `features/tools/discovery.ts` 🟢 — top-level LLM-facing discovery tool. Input: `{ filters?: SearchFilters, view: "grid" | "comparison" | "night-plan", shortlistMovieIds?: string[], comparisonCriteria?: string[], pickedMovieId?: string, backupMovieIds?: string[], reason?: string }`. For grid: queries local DB via existing `moviesRepository`. For comparison/night-plan: pulls already-known movies by ID (no TMDB). Returns `{ data, a2uiMessages: discoverySurfaceMessages(...) }`. Falls back to `view: "grid"` on invalid `view` and emits a warning. Description includes `getCatalogPromptDescription()` so the LLM knows the catalog.
+**C10.** `features/tools/discovery.ts` 🟢 — top-level LLM-facing discovery tool. Input: `{ filters?: SearchFilters, view: string, shortlistMovieIds?: string[], comparisonCriteria?: string[], pickedMovieId?: string, backupMovieIds?: string[], reason?: string }`, where `SearchFilters` supports `title`, `director`, `actor`, `genres?: string[]`, `year`, `maxRuntime`, `excludedGenres?: string[]`, and display-only `moods?: string[]`. Use `z.string()` plus internal validation for `view` so invalid values can fall back instead of Zod-rejecting the tool call. For grid: queries local DB via existing `moviesRepository`. For comparison/night-plan: pulls already-known movies by ID (no TMDB), preserving the caller's ID order. Returns `{ data, a2uiMessages: discoverySurfaceMessages(...), warnings? }`. Falls back to `view: "grid"` on invalid `view` and emits a `CUSTOM` warning. Description includes `getCatalogPromptDescription()` so the LLM knows the catalog.
 
 **C11.** `features/tools/search-movies.ts` 🟡 — converted to internal helper; **no longer registered as an LLM tool**. Pure function `searchMoviesData(db, params)` consumed by `discovery.ts`. The LLM only sees `discovery` for movie-discovery flows.
 
@@ -182,15 +184,15 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 
 **C13.** `features/tools/review-show.ts` 🟡 — same pattern as C12.
 
-**C14.** `features/tools/show-movie-details.ts` 🟢 — server stub: `tool({ inputSchema: z.object({ movieId: z.string() }), execute: async () => null })`. Registered as client-side via constant in `services/agents/client-side-tools.ts`.
+**C14.** `features/tools/show-movie-details.ts` 🟢 — client-side tool declaration: `tool({ inputSchema: z.object({ movieId: z.string() }) })` with **no server `execute`**. Registered as client-side via constant in `services/agents/client-side-tools.ts`; fire-and-forget, no `TOOL_CALL_RESULT` expected.
 
-**C15.** `features/tools/highlight-comparison-criteria.ts` 🟢 — same pattern. Input `{ criteria: z.array(z.string()) }`.
+**C15.** `features/tools/highlight-comparison-criteria.ts` 🟢 — same no-`execute` client-side pattern. Input `{ criteria: z.array(z.string()) }`.
 
 **C16.** `services/agents/client-side-tools.ts` 🟢 — `CLIENT_SIDE_TOOLS = new Set(["show_movie_details", "highlight_comparison_criteria"])`. Used by `streamAgUiEvents` to annotate events and to short-circuit `STEP_FINISHED` (no result expected).
 
 **C19.** `services/agents/json-patch-adapter.ts` 🟢 — thin wrapper aligning `fast-json-patch`'s `Operation[]` with AG-UI core's `StateDeltaEvent.delta` typing. Functions: `toAgUiDelta(ops)`, `fromAgUiDelta(delta)`. Avoids casting throughout the codebase.
 
-**C17.** `features/chat/route.ts` 🟡 — pass `memory` snapshot from orchestrator into `streamAgUiEvents`; replace `buildApprovalStream` with a generic `buildResumeStream(threadId, runId, userId, toolName, response)` that calls `runResumedRun`.
+**C17.** `features/chat/route.ts` 🟡 — pass `memory` snapshot and DB `runId` from orchestrator into `streamAgUiEvents`; emit the DB run id as AG-UI `runId` for traceability; replace `buildApprovalStream` with a generic `buildResumeStream(threadId, runId, userId, interruptId, response)` that calls `runResumedRun`. Approval/rejection responses should be accepted through a typed request extension (`forwardedProps.interruptResponse` or explicit body field), not by mutating `agent.messages` with ad hoc tool messages.
 
 **C18.** `features/movie-night/route.ts` 🟢 *(optional, parity)* — `GET /` lists committed plans for the current user.
 
@@ -198,7 +200,7 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 
 **D1.** `lib/a2ui/json-pointer.ts` 🟢 — ~30-line `get`/`set` for `/foo/bar` paths. No dep.
 
-**D2.** `lib/a2ui/store.ts` 🟢 — per-surface state machine, `applyMessage(state, msg)`. Exposes `useA2UISurface(surfaceId)` hook. Subscribed to by the renderer.
+**D2.** `lib/a2ui/store.ts` 🟢 — per-surface state machine, `applyMessage(state, msg)`. Exposes `useA2UISurface(surfaceId)` hook. Subscribed to by the renderer. `createSurface` is idempotent for an existing `surfaceId`: update/catalog-snapshot metadata may refresh, but the current data model is preserved unless a future message explicitly clears it.
 
 **D3.** `lib/a2ui/catalog.ts` 🟢 — `Record<componentName, RendererComponent>`. Unknown name → null + `console.warn` + inspector log.
 
@@ -206,7 +208,7 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 
 **D5.** `lib/a2ui/renderers/skeleton.tsx` 🟢 — shadcn `Skeleton` styled per `variant: "movie-grid" | "row"`.
 
-**D6.** `lib/a2ui/renderers/movie-filter-panel.tsx` 🟢 — reads filters from bound path; chips for genres, runtime, region, moods.
+**D6.** `lib/a2ui/renderers/movie-filter-panel.tsx` 🟢 — reads filters from bound path; chips for genres, max runtime, excluded genres, moods. No `region` field (out of scope).
 
 **D7.** `lib/a2ui/renderers/movie-grid.tsx` 🟢 — reads `movies: MovieDto[]`; reuses `MovieCard` ⚪.
 
@@ -226,7 +228,7 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 
 **D15.** `lib/ag-ui/frontend-tools.ts` 🟢 — `Record<toolName, (args) => void>`. Handlers call into respective contexts (modal, comparison-table imperative ref).
 
-**D16.** `hooks/use-agent-chat.ts` 🟡 — subscribe to `onCustomEvent` (route `a2ui` → A2UI store; `memory-applied` → memory highlight); `onStateSnapshotEvent`/`onStateDeltaEvent` → memory context; `onStepStartedEvent`/`onStepFinishedEvent` → activity context; `onRunFinishedEvent` interrupt-outcome → set `pendingInterrupt`; on `onToolCallEndEvent` for client-side tools, dispatch via `frontend-tools.ts`. Replace `pendingApproval: PendingApproval` with `pendingInterrupt: Interrupt | null`. Add `respondToInterrupt(response)` — design a clean wire-format extension point (do **not** copy the existing `agentRef.current.messages = [...]` mutation in `approveToolCall`, which was a throwaway test). Preferred: wrap `HttpAgent.runAgent()` and inject the structured response into the request body; if `HttpAgent` exposes a documented method for this, use it.
+**D16.** `hooks/use-agent-chat.ts` 🟡 — subscribe to `onCustomEvent` (route `a2ui` → A2UI store; `memory-applied`/`warning` → memory/inspector highlights); `onStateSnapshotEvent`/`onStateDeltaEvent` → memory context; `onStepStartedEvent`/`onStepFinishedEvent` → activity context; `onRunFinishedEvent` reads `event.result` and, when `result.type === "interrupt"`, sets `pendingInterrupt`; on `onToolCallEndEvent` for client-side tools, dispatch via `frontend-tools.ts` and do not add them to pending approval detection. Replace `pendingApproval: PendingApproval` with `pendingInterrupt: Interrupt | null`. Add `respondToInterrupt(response)` — design a clean wire-format extension point (do **not** copy the existing `agentRef.current.messages = [...]` mutation in `approveToolCall`, which was a throwaway test). Preferred: call `HttpAgent.runAgent({ forwardedProps: { interruptResponse: { interruptId, response } } })` or an explicit request body extension handled by `chat/route.ts`; if `HttpAgent` exposes a documented method for this, use it.
 
 **D17.** `contexts/memory-context.tsx` 🟢 — `applySnapshot`, `applyDelta(jsonPatchOps)` (uses `fast-json-patch`), `markApplied(keys[])` flashes for 1.5s.
 
@@ -244,7 +246,7 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 
 **D24.** `components/movie-details-modal.tsx` 🟢 — shadcn `Dialog`; movie passed in via context populated by frontend tool.
 
-**D25.** `components/approval-dialog.tsx` 🟢 — schema-driven from `interrupt.responseSchema`. Field renderers: `boolean` → checkbox; `string` (≤50 chars) → input; `string` (>50 chars) → textarea. Submit → `respondToInterrupt(response)`.
+**D25.** `components/approval-dialog.tsx` 🟢 — schema-driven from `interrupt.responseSchema` plus small UI hints (`ui:widget`, `ui:prefillFrom`, `maxLength`) stored alongside the JSON schema. Field renderers: `boolean` → checkbox; `string` + `ui:widget="textarea"` → textarea; otherwise short string → input. Submit → `respondToInterrupt({ interruptId, response })`.
 
 **D26.** `components/movie-search.tsx` 🟡 — drop direct `setMovies` path; render discovery surface via `<A2UIRenderer surfaceId="discovery"/>`; show `ApprovalDialog` when `pendingInterrupt` is non-null.
 
@@ -289,16 +291,17 @@ Tests for added behavior only. Skip framework/Drizzle/AI-SDK internals.
 - On `tool-result` for `update_preferences`, emits `STATE_DELTA` with `delta = output.jsonPatchOps`
 - On `tool-result` carrying `a2uiMessages`, emits one `CUSTOM { name:"a2ui" }` per message in order
 - `DEMO_MODE_SLEEP=100` inserts ≥100ms gap between consecutive A2UI events
-- `STEP_STARTED` precedes `TOOL_CALL_START`; `STEP_FINISHED` follows `TOOL_CALL_RESULT`
+- For server-executed tools, `STEP_STARTED` precedes `TOOL_CALL_START` and `STEP_FINISHED` follows `TOOL_CALL_RESULT`; for client-side tools, `STEP_FINISHED` follows `TOOL_CALL_END`
 - Synthetic `"Parsing intent"` step opens at `RUN_STARTED`, closes at first `tool-call`
-- Stream ending with a `tool-approval-request` for `commit_movie_night` → `RUN_FINISHED { outcome: { type:"interrupt", interrupts:[{...responseSchema}]}}`
+- Stream ending with a `tool-approval-request` for `commit_movie_night` → `RUN_FINISHED { result: { type:"interrupt", interrupts:[{ id: toolCallRecordId, ...responseSchema }]}}`
 - Same for legacy `search_tmdb` (regression)
 - Client-side tool names emit `STEP_FINISHED` immediately after `TOOL_CALL_END` (no result expected)
 
 **Discovery tool** — `features/tools/discovery.test.ts` 🟢
 - `view:"grid"` calls `moviesRepository.searchStructured(filters)`, returns `{ data, a2uiMessages }`
+- `filters.maxRuntime` and `filters.excludedGenres` are enforced by the DB query; `filters.moods` may be echoed/displayed without direct DB enforcement
 - `view:"comparison"` with `shortlistMovieIds` resolves movies via `moviesRepository.findByIds`, no TMDB call
-- `view:"carousel"` (invalid) → falls back to `view:"grid"` + warning in returned object
+- `view:"carousel"` (invalid) → falls back to `view:"grid"` + returned warning that `ag-ui-stream` emits as `CUSTOM { name:"warning" }`
 - Description string contains every catalog component name (sanity check on prompt grounding)
 
 **Demo fixtures** — `services/agents/demo-fixtures.test.ts` 🟢
@@ -307,7 +310,7 @@ Tests for added behavior only. Skip framework/Drizzle/AI-SDK internals.
 - Each fixture emits a complete event sequence (RUN_STARTED → … → RUN_FINISHED) when consumed
 
 **Message translator** — `services/agents/message-translator.test.ts` 🟡 *(extend)*
-- `extractApprovalResponses` returns `{ approved, editedReason, toolName }` for arbitrary tool name
+- `extractApprovalResponses` returns `{ approved, editedReason, interruptId }` for arbitrary interrupt id
 - Backward-compat: still works for legacy `{ approved: true }` payloads from `search_tmdb`
 
 **JSON pointer** — `lib/a2ui/json-pointer.test.ts` 🟢
@@ -316,7 +319,8 @@ Tests for added behavior only. Skip framework/Drizzle/AI-SDK internals.
 - Empty path `""` → root; missing intermediate keys created on `set`
 
 **A2UI store** — `lib/a2ui/store.test.ts` 🟢
-- `createSurface` initializes empty surface state
+- `createSurface` initializes empty surface state for new surfaces
+- `createSurface` for an existing `surfaceId` preserves the current data model while refreshing metadata/catalog snapshot
 - `updateComponents` replaces components by id; unreferenced ids retained
 - `updateDataModel` writes via JSON Pointer, triggers subscriber notification only for affected paths
 - Unknown component name in `updateComponents` does not throw; logs to event-log
@@ -372,7 +376,7 @@ Tests for added behavior only. Skip framework/Drizzle/AI-SDK internals.
 - For `DEMO_MODE_FIXTURES=true`: same prompts produce byte-identical event traces
 
 **HITL round-trip** — `apps/api/tests/hitl-commit-movie-night.test.ts` 🟢
-- Run produces `RUN_FINISHED { outcome: interrupt }` carrying `commit_movie_night` proposed payload
+- Run produces `RUN_FINISHED { result: { type: "interrupt", ... } }` carrying `commit_movie_night` proposed payload
 - Client posts `{ approved: true, editedReason: "edited" }` → resume run completes → `movie_night_plans` row exists with `reason = "edited"` and `run_id` set
 - Reject (`approved: false`) → no row inserted; chat acknowledges
 - Schema-violation payload → 422; no row inserted
@@ -385,7 +389,7 @@ Tests for added behavior only. Skip framework/Drizzle/AI-SDK internals.
 ### Smoke / rehearsal (manual + scripted)
 
 - `DEMO_MODE_FIXTURES=true pnpm --filter @repo/api dev` + run all 4 prompts → matches golden trace exactly
-- Sabotage script: kill TMDB env key, run prompt 1 → inspector shows `STEP_FINISHED Searching TMDB ✗` and `RUN_ERROR`; fixture fallback recovers
+- Sabotage script: kill TMDB env key, run prompt 1 → inspector shows `RUN_ERROR`; Activity marks the currently active "Searching TMDB" step as failed client-side; fixture fallback recovers
 - Toggle Cmd+I 5× during a live run; surface state and run continuity preserved
 
 ### Validation Loop (development harness)
@@ -398,7 +402,7 @@ A scripted harness that drives the full test/typecheck/lint cycle plus end-to-en
 
 1. **DB reset between runs** — truncate `agent_sessions`, `agent_runs`, `tool_calls`, `movie_night_plans` (cascades to `chat_messages` via FK). Reuses existing Testcontainers setup; one helper function.
 2. **Hard guard against live LLM** — assert `DEMO_MODE_FIXTURES=true` at loop start; bail with non-zero exit otherwise. LLM stochasticity makes trace diffs noisy.
-3. **HITL round-trip script** — two-step `fetch` flow against `/api/v1/chat`: initial run → assert `RUN_FINISHED { outcome: interrupt }` → POST approval response with edited `reason` → assert resume run completes + `movie_night_plans` row inserted. ~30 lines.
+3. **HITL round-trip script** — two-step `fetch` flow against `/api/v1/chat`: initial run → assert `RUN_FINISHED { result: { type: "interrupt" } }` → POST approval response with edited `reason` and `interruptId` → assert resume run completes + `movie_night_plans` row inserted. ~30 lines.
 4. **Failure summarizer** — on any failure (typecheck, lint, test, trace diff), surface only: failing item name + stderr last 30 lines + (for trace diff) the unified diff. Suppresses pass-noise.
 5. **Golden-trace runner** — for each of the 4 scripted prompts: `fetch` SSE, accumulate events to a normalized JSON array (strip `runId`, `threadId`, timestamps, `tool_call_id` randomness), diff against checked-in golden. Goldens at `apps/api/tests/__goldens__/<prompt-slug>.json`. First run is record-mode (writes the golden); subsequent runs are assert-mode. Toggle via `--record` flag.
 
@@ -453,10 +457,13 @@ Phases ordered by **B-risk** (derisk-first). End-of-phase verify gate must pass 
 - [ ] **Create catalog contract** — `packages/contracts/src/a2ui/catalog.ts`
 - [ ] **Create viewing-preferences contracts** — `packages/contracts/src/agent/viewing-preferences.ts`
 - [ ] **Create interrupts contracts** — `packages/contracts/src/agent/interrupts.ts`
+- [ ] **Protocol shape spike** — confirm installed `@ag-ui/core` event fields (`RUN_FINISHED.result`, `STEP_*.stepName`) and update tests/types before feature work; if upgrading AG-UI to an `outcome` API, do it here and revise the plan in the same patch
+- [ ] **Interrupt resume contract** — define request wire format (`forwardedProps.interruptResponse` or explicit body field), server validation path, resume by `interruptId = tool_calls.id`, and double-submit rejection before Phase 3 UI work starts
+- [ ] **Memory seeding contract** — implement/test "load latest preferences before creating new session; seed created session" to prevent latest-empty-session memory loss
 - [ ] **Barrel exports** — `packages/contracts/src/{a2ui,agent}/index.ts` + root `index.ts`
 - [ ] **Add `fast-json-patch` dependency** — `apps/web/package.json` + `apps/api/package.json`
 - [ ] **JSON Patch adapter** — `apps/api/src/services/agents/json-patch-adapter.ts` (aligns `fast-json-patch` Operation[] with AG-UI `StateDeltaEvent.delta` typing)
-- [ ] **Add `findByIds(ids: string[])` to movies repo** — `packages/db/src/repositories/movies.ts` (consumed by `discovery` for comparison/night-plan views)
+- [ ] **Extend movie search filters + add ordered lookup** — `packages/db/src/repositories/movies.ts`: support `genres[]`, `maxRuntime`, `excludedGenres[]`; add `findByIds(ids: string[])` preserving caller order (consumed by `discovery` for comparison/night-plan views)
 - [ ] **Generate + apply migration** — `pnpm db:generate && pnpm db:migrate`
 - [ ] **Verify**: typecheck passes; `pnpm --filter @repo/db test` passes
 
@@ -495,9 +502,9 @@ Phases ordered by **B-risk** (derisk-first). End-of-phase verify gate must pass 
 ### Phase 3 — HITL interrupt + UF4 base (Thu week 1, ~1 day)
 
 - [ ] **Generalize `extractApprovalResponses` for any tool name + `editedReason`** — `apps/api/src/services/agents/message-translator.ts` + tests
-- [ ] **Emit `RUN_FINISHED { outcome: interrupt }` when stream ends with pending tool-approval-request** — `apps/api/src/services/agents/ag-ui-stream.ts` + tests (cover `commit_movie_night` AND `search_tmdb` regression)
+- [ ] **Emit `RUN_FINISHED { result: { type: "interrupt", ... } }` when stream ends with pending tool-approval-request** — `apps/api/src/services/agents/ag-ui-stream.ts` + tests (cover `commit_movie_night` AND `search_tmdb` regression)
 - [ ] **Build interrupt payload helpers** — `packages/contracts/src/agent/interrupts.ts` (already created in Phase 0; flesh out builders)
-- [ ] **Refactor `runApprovedTool` → `runResumedRun(toolName, response)`; route `commit_movie_night` to `movieNightService.commit`** — `apps/api/src/services/agents/orchestrator.ts`
+- [ ] **Refactor `runApprovedTool` → `runResumedRun(interruptId, response)`; route `commit_movie_night` to `movieNightService.commit`** — `apps/api/src/services/agents/orchestrator.ts`; resume by pending `tool_calls.id`, validate response schema, reject double-submit, use `editedReason ?? proposed.reason`
 - [ ] **Movie-night service** — `apps/api/src/services/movie-night.ts`
 - [ ] **`commit_movie_night` tool with `needsApproval: true`** — `apps/api/src/features/tools/commit-movie-night.ts`
 - [ ] **Replace `buildApprovalStream` with generic `buildResumeStream`** — `apps/api/src/features/chat/route.ts`
@@ -506,14 +513,14 @@ Phases ordered by **B-risk** (derisk-first). End-of-phase verify gate must pass 
 - [ ] **Show approval dialog from MovieSearch when `pendingInterrupt` is non-null** — `apps/web/src/components/movie-search.tsx`
 - [ ] **Tests**: `hitl-commit-movie-night.test.ts` (Testcontainers) — full round-trip with `editedReason` insert, reject, schema-violation
 - [ ] **Verify UF4**: "pick one for tonight, plus a backup" → `MovieNightPlan` renders → approval dialog with editable reason → approve → `movie_night_plans` row exists
-- [ ] **Record golden trace for HITL round-trip** — `apps/api/tests/__goldens__/hitl-commit-movie-night.json`. Captures both initial run (interrupt outcome) and resume run.
+- [ ] **Record golden trace for HITL round-trip** — `apps/api/tests/__goldens__/hitl-commit-movie-night.json`. Captures both initial run (`RUN_FINISHED.result.type === "interrupt"`) and resume run.
 
 ### Phase 4 — Memory + UF3 + system-prompt injection (Fri week 1, ~1 day)
 
 - [ ] **Memory service** — `apps/api/src/services/agents/memory.ts` (load, applyPreferencesPatch with FIFO-8 cap, formatMemoryForSystemPrompt) + tests
 - [ ] **`update_preferences` tool** — `apps/api/src/features/tools/update-preferences.ts` + tests (returns `{ jsonPatchOps, snapshot }`)
 - [ ] **Emit `STATE_SNAPSHOT` after `RUN_STARTED`; emit `STATE_DELTA` on `update_preferences` tool result** — `apps/api/src/services/agents/ag-ui-stream.ts` + tests
-- [ ] **Inject `formatMemoryForSystemPrompt(memory)` into system prompt; emit `CUSTOM { name:"memory-applied", value: { keys } }` when prefs influence search args** — `apps/api/src/services/agents/orchestrator.ts`
+- [ ] **Inject `formatMemoryForSystemPrompt(memory)` into system prompt; emit `CUSTOM { name:"memory-applied", value: { keys } }` when prefs influence `discovery.filters`** — `apps/api/src/services/agents/orchestrator.ts`
 - [ ] **Memory context (client)** — `apps/web/src/contexts/memory-context.tsx` + tests
 - [ ] **Memory panel UI** — `apps/web/src/components/inspector/memory-panel.tsx` + tests
 - [ ] **Wire snapshot/delta/memory-applied events in `useAgentChat`** — `apps/web/src/hooks/use-agent-chat.ts`
@@ -565,10 +572,10 @@ Phases ordered by **B-risk** (derisk-first). End-of-phase verify gate must pass 
 
 ### Agent stack (already wired)
 
-`@ag-ui/core`, `@ag-ui/encoder`, `@ag-ui/client` are installed and used end-to-end. The chat route emits SSE events via `EventEncoder`; the web client subscribes via `HttpAgent`. AI SDK (`ai` package) drives tool execution via `streamText`. Approval flow exists for `search_tmdb` but uses the "missing TOOL_CALL_RESULT" cheat instead of `outcome: interrupt`.
+`@ag-ui/core`, `@ag-ui/encoder`, `@ag-ui/client` are installed and used end-to-end. The chat route emits SSE events via `EventEncoder`; the web client subscribes via `HttpAgent`. AI SDK (`ai` package) drives tool execution via `streamText`. Approval flow exists for `search_tmdb` but uses the "missing TOOL_CALL_RESULT" cheat instead of a structured interrupt result.
 
 - Current behavior: tool returns object → orchestrator streams `RUN_STARTED`, `TEXT_MESSAGE_*`, `TOOL_CALL_*` (start/args/end), `TOOL_CALL_RESULT`, `RUN_FINISHED`
-- Current limitations: no `STATE_SNAPSHOT`/`STATE_DELTA`, no `STEP_*`, no `CUSTOM`, no `outcome: interrupt`, AI-SDK `start-step`/`finish-step` parts ignored in `ag-ui-stream.ts`
+- Current limitations: no `STATE_SNAPSHOT`/`STATE_DELTA`, no `STEP_*`, no `CUSTOM`, no `RUN_FINISHED.result.type === "interrupt"`, AI-SDK `start-step`/`finish-step` parts ignored in `ag-ui-stream.ts`
 
 ### A2UI implementation (current)
 
@@ -632,7 +639,7 @@ Existing patterns to follow when implementing each element.
 - Tool with Zod input + `needsApproval: true` + execute → `apps/api/src/features/tools/search-tmdb.ts` (model for `commit_movie_night`)
 - Tool returning a tagged-union surface → `apps/api/src/features/tools/watchlist-show.ts` (refactor target — adapt to return `{ data, a2uiMessages }`)
 - Tool with optional `movieId` shortcut + clarification fallback → `apps/api/src/features/tools/review-add.ts` (model for `discovery` when matching shortlists)
-- Movies bulk lookup is **not yet present** in `moviesRepository` — add `findByIds(ids: string[])` as part of Phase 0 (used by `discovery` for comparison/night-plan views)
+- Movies bulk lookup and richer filters are **not yet present** in `moviesRepository` — add ordered `findByIds(ids: string[])` plus `genres[]` / `maxRuntime` / `excludedGenres[]` search support as part of Phase 0 (used by `discovery` for comparison/night-plan views and memory-backed search)
 
 ### AG-UI server emission
 - `EventEncoder` usage + ordered yield of typed events → `apps/api/src/services/agents/ag-ui-stream.ts`
@@ -673,9 +680,9 @@ Existing patterns to follow when implementing each element.
 
 ## Resolved questions
 
-1. **AI SDK ↔ AG-UI interrupt mapping** → **Day-1 spike of Phase 3 is the gate.** Verify `tool-approval-request` reliably fires before committing to H2. If it doesn't, fall back to H1 per the cross-phase fallback list.
+1. **AI SDK ↔ AG-UI interrupt mapping** → **Phase 0 spike is the gate.** Verify `tool-approval-request` reliably fires, confirm installed AG-UI uses `RUN_FINISHED.result` / `STEP_*.stepName`, and lock the resume-by-`interruptId` request format before UI work starts. If `tool-approval-request` is unreliable, fall back to H1 per the cross-phase fallback list.
 
-2. **`respondToInterrupt` wire format** → **Current code is a throwaway test, not a reference.** Design a clean wire-format extension point in D16 (do not copy `agentRef.current.messages = [...]`).
+2. **`respondToInterrupt` wire format** → **Current code is a throwaway test, not a reference.** Use a clean request extension (`forwardedProps.interruptResponse` or explicit body field) carrying `{ interruptId, response }`; do not copy `agentRef.current.messages = [...]`.
 
 3. **`search_movies` retirement** → **Hide.** Removed from LLM tool registry. Lives only as internal helper consumed by `discovery`.
 
