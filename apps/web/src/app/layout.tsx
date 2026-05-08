@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Toaster } from "@repo/ui";
 import { WatchlistProvider } from "@/contexts/watchlist-context";
+import { ReviewProvider } from "@/contexts/review-context";
 import { ChatResultsProvider } from "@/contexts/chat-results-context";
 import "./globals.css";
 
@@ -18,9 +19,11 @@ export default function RootLayout({
     <html lang="en">
       <body className="min-h-screen antialiased">
         <WatchlistProvider>
-          <ChatResultsProvider>
-            {children}
-          </ChatResultsProvider>
+          <ReviewProvider>
+            <ChatResultsProvider>
+              {children}
+            </ChatResultsProvider>
+          </ReviewProvider>
         </WatchlistProvider>
         <Toaster />
       </body>

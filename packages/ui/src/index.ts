@@ -23,3 +23,18 @@ export {
 } from "./components/toast";
 export { Toaster } from "./components/toaster";
 export { useToast, toast, type ToasterToast } from "./hooks/use-toast";
+export {
+  Dialog,
+  DialogPortal,
+  DialogOverlay,
+  DialogTrigger,
+  DialogClose,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "./components/dialog";
+export { Textarea, type TextareaProps } from "./components/textarea";
+export { Label } from "./components/label";
+export { StarRating, type StarRatingProps } from "./components/star-rating";

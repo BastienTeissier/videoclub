@@ -1,12 +1,13 @@
 import type { MovieDto } from "@repo/contracts";
 import { BookmarkIcon } from "./bookmark-icon";
+import { ReviewIcon } from "./review-icon";
 
 interface MovieCardProps {
   movie: MovieDto;
-  alwaysShowBookmark?: boolean;
+  alwaysShowOverlays?: boolean;
 }
 
-export function MovieCard({ movie, alwaysShowBookmark = false }: MovieCardProps) {
+export function MovieCard({ movie, alwaysShowOverlays = false }: MovieCardProps) {
   return (
     <div className="group relative overflow-hidden rounded-lg">
       <div className="relative">
@@ -24,8 +25,9 @@ export function MovieCard({ movie, alwaysShowBookmark = false }: MovieCardProps)
         <BookmarkIcon
           movieId={movie.id}
           movieTitle={movie.title}
-          className={alwaysShowBookmark ? "" : "opacity-0 group-hover:opacity-100"}
+          className={alwaysShowOverlays ? "" : "opacity-0 group-hover:opacity-100"}
         />
+        <ReviewIcon movie={movie} alwaysVisible={alwaysShowOverlays} />
       </div>
       <div className="mt-1.5">
         <p className="truncate text-sm font-medium text-foreground">

@@ -30,6 +30,18 @@ vi.mock("../../features/tools/watchlist-remove.js", () => ({
   createWatchlistRemoveTool: vi.fn(() => ({ type: "watchlist_remove_tool" })),
 }));
 
+vi.mock("../../features/tools/review-add.js", () => ({
+  createReviewAddTool: vi.fn(() => ({ type: "review_add_tool" })),
+}));
+
+vi.mock("../../features/tools/review-show.js", () => ({
+  createReviewShowTool: vi.fn(() => ({ type: "review_show_tool" })),
+}));
+
+vi.mock("../../features/tools/review-delete.js", () => ({
+  createReviewDeleteTool: vi.fn(() => ({ type: "review_delete_tool" })),
+}));
+
 const mockCreate = vi.fn();
 const mockFindBySessionId = vi.fn();
 const mockSessionCreate = vi.fn();
@@ -119,6 +131,54 @@ describe("orchestrator", () => {
         tools: expect.objectContaining({
           search_movies: expect.anything(),
           search_tmdb: expect.anything(),
+        }),
+      })
+    );
+  });
+
+  it("registers review_add tool", async () => {
+    await runOrchestrator({
+      db: fakeDb,
+      userId: "user-1",
+      messages: [{ role: "user", content: "test" }],
+    });
+
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.objectContaining({
+          review_add: expect.anything(),
+        }),
+      })
+    );
+  });
+
+  it("registers review_show tool", async () => {
+    await runOrchestrator({
+      db: fakeDb,
+      userId: "user-1",
+      messages: [{ role: "user", content: "test" }],
+    });
+
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.objectContaining({
+          review_show: expect.anything(),
+        }),
+      })
+    );
+  });
+
+  it("registers review_delete tool", async () => {
+    await runOrchestrator({
+      db: fakeDb,
+      userId: "user-1",
+      messages: [{ role: "user", content: "test" }],
+    });
+
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.objectContaining({
+          review_delete: expect.anything(),
         }),
       })
     );

@@ -12,9 +12,19 @@ vi.mock("@/contexts/watchlist-context", () => ({
   }),
 }));
 
-vi.mock("@repo/ui", () => ({
-  toast: vi.fn(),
+vi.mock("@/contexts/review-context", () => ({
+  useReviews: () => ({
+    getReviewRating: () => undefined,
+    upsertReview: vi.fn(),
+    deleteReview: vi.fn(),
+    refetch: vi.fn(),
+  }),
 }));
+
+vi.mock("@repo/ui", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@repo/ui")>();
+  return { ...actual, toast: vi.fn() };
+});
 
 const fakeMovie = (id: number) => ({
   id: `00000000-0000-4000-8000-00000000000${id}`,

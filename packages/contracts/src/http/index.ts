@@ -12,3 +12,17 @@ export {
   type RemoveFromWatchlistResponse,
   type WatchlistResponse,
 } from "./watchlist.js";
+export {
+  upsertReviewRequestSchema,
+  upsertReviewResponseSchema,
+  deleteReviewResponseSchema,
+  getReviewResponseSchema,
+  listReviewRatingsResponseSchema,
+  listReviewsResponseSchema,
+  type UpsertReviewRequest,
+  type UpsertReviewResponse,
+  type DeleteReviewResponse,
+  type GetReviewResponse,
+  type ListReviewRatingsResponse,
+  type ListReviewsResponse,
+} from "./review.js";

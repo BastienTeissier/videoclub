@@ -5,6 +5,7 @@ import { Input, Button } from "@repo/ui";
 import type { MovieDto } from "@repo/contracts";
 import { useAgentChat } from "@/hooks/use-agent-chat";
 import { useWatchlist } from "@/contexts/watchlist-context";
+import { useReviews } from "@/contexts/review-context";
 import { useChatResults } from "@/contexts/chat-results-context";
 import { A2UIRenderer } from "@/lib/a2ui/registry";
 import { MovieCard } from "./movie-card";
@@ -12,7 +13,6 @@ import { MovieCard } from "./movie-card";
 export function MovieSearch() {
   const [query, setQuery] = useState("");
   const {
-    messages,
     isLoading,
     error,
     pendingApproval,
@@ -22,17 +22,18 @@ export function MovieSearch() {
   } = useAgentChat();
 
   const { refetch } = useWatchlist();
+  const { refetch: refetchReviews } = useReviews();
   const {
     movies: persistedMovies,
-    watchlistSurface: persistedWatchlistSurface,
+    a2uiSurface: persistedA2UISurface,
     clarification,
     setMovies,
-    setWatchlistSurface,
+    setA2UISurface,
     setClarification,
   } = useChatResults();
 
-  // Track previous toolResults length to detect new results
-  const prevToolResultsRef = useRef(toolResults);
+  // Track previous toolResults to detect new results
+  const prevToolResultsRef = useRef<typeof toolResults | null>(null);
 
   // Project transient toolResults into persistent context
   useEffect(() => {
@@ -55,17 +56,19 @@ export function MovieSearch() {
       return;
     }
 
-    // Check for watchlist surface
-    const watchlistResult = toolResults.find(
+    // Check for A2UI surfaces (watchlist_show, review_add, review_show)
+    const surfaceResult = toolResults.find(
       (tr) =>
-        tr.toolName === "watchlist_show" &&
+        (tr.toolName === "watchlist_show" ||
+          tr.toolName === "review_add" ||
+          tr.toolName === "review_show") &&
         tr.result &&
         typeof tr.result === "object" &&
         "type" in tr.result,
     );
-    if (watchlistResult) {
-      setWatchlistSurface(
-        watchlistResult.result as { type: string; [key: string]: unknown },
+    if (surfaceResult) {
+      setA2UISurface(
+        surfaceResult.result as { type: string; [key: string]: unknown },
       );
       return;
     }
@@ -73,13 +76,16 @@ export function MovieSearch() {
     // Check for clarification results
     for (const tr of toolResults) {
       if (
-        (tr.toolName === "watchlist_add" || tr.toolName === "watchlist_remove") &&
+        (tr.toolName === "watchlist_add" ||
+          tr.toolName === "watchlist_remove" ||
+          tr.toolName === "review_add" ||
+          tr.toolName === "review_delete") &&
         tr.result &&
         typeof tr.result === "object" &&
         "clarification_needed" in tr.result
       ) {
         const result = tr.result as unknown as {
-          action: "add" | "remove";
+          action: "add" | "remove" | "review" | "review-delete";
           candidates: MovieDto[];
         };
         setClarification({ action: result.action, candidates: result.candidates });
@@ -99,26 +105,52 @@ export function MovieSearch() {
         return;
       }
     }
-  }, [toolResults, setMovies, setWatchlistSurface, setClarification, refetch]);
+
+    // Check for successful review_delete → refetch reviews
+    for (const tr of toolResults) {
+      if (
+        tr.toolName === "review_delete" &&
+        tr.result &&
+        typeof tr.result === "object" &&
+        "deleted" in tr.result &&
+        (tr.result as { deleted?: boolean }).deleted === true
+      ) {
+        refetchReviews();
+        return;
+      }
+    }
+  }, [
+    toolResults,
+    setMovies,
+    setA2UISurface,
+    setClarification,
+    refetch,
+    refetchReviews,
+  ]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
+    setMovies([]);
     sendMessage(query.trim());
     setQuery("");
   }
 
   function handleClarificationPick(movie: MovieDto) {
     const action = clarification!.action;
-    const msg = `${action === "add" ? "add" : "remove"} [movieId:${movie.id}] ${movie.title}${movie.year ? ` (${movie.year})` : ""} ${action === "add" ? "to" : "from"} my watchlist`;
+    const titleAndYear = `${movie.title}${movie.year ? ` (${movie.year})` : ""}`;
+    let msg: string;
+    if (action === "review") {
+      msg = `review [movieId:${movie.id}] ${titleAndYear}`;
+    } else if (action === "review-delete") {
+      msg = `delete my review of [movieId:${movie.id}] ${titleAndYear}`;
+    } else {
+      msg = `${action} [movieId:${movie.id}] ${titleAndYear} ${action === "add" ? "to" : "from"} my watchlist`;
+    }
+    setMovies([]);
     setClarification(null);
     sendMessage(msg);
   }
-
-  // Get the latest assistant message text
-  const assistantMessages = messages.filter((m) => m.role === "assistant");
-  const lastAssistantText =
-    assistantMessages[assistantMessages.length - 1]?.content ?? null;
 
   return (
     <div className="w-full max-w-2xl mx-auto">
@@ -132,17 +164,31 @@ export function MovieSearch() {
         />
       </form>
 
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            setMovies([]);
+            sendMessage("show my reviews");
+          }}
+          disabled={isLoading}
+        >
+          My Reviews
+        </Button>
+      </div>
+
       <div className="mt-6">
-        {isLoading && (
-          <p className="text-sm text-muted">Thinking...</p>
-        )}
+        {isLoading &&
+          persistedMovies.length === 0 &&
+          !persistedA2UISurface &&
+          !clarification && (
+            <p className="text-sm text-muted">Thinking...</p>
+          )}
 
         {error && (
           <p className="text-sm text-destructive">{error}</p>
-        )}
-
-        {lastAssistantText && (
-          <p className="text-sm text-muted mb-4">{lastAssistantText}</p>
         )}
 
         {pendingApproval &&
@@ -178,8 +224,8 @@ export function MovieSearch() {
           </div>
         )}
 
-        {persistedWatchlistSurface && (
-          <A2UIRenderer surface={persistedWatchlistSurface} />
+        {persistedA2UISurface && (
+          <A2UIRenderer surface={persistedA2UISurface} />
         )}
 
         {persistedMovies.length > 0 && (
