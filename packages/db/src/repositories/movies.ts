@@ -1,5 +1,5 @@
 import type { Column } from "drizzle-orm";
-import { ilike, eq, and, desc, sql, type SQL } from "drizzle-orm";
+import { ilike, eq, and, or, desc, lte, sql, type SQL } from "drizzle-orm";
 import { movies, type NewMovie } from "../schema/movies.js";
 import type { Database } from "../client/index.js";
 
@@ -8,11 +8,18 @@ interface SearchStructuredParams {
   director?: string;
   actor?: string;
   genre?: string;
+  genres?: string[];
+  excludedGenres?: string[];
   year?: number;
+  maxRuntime?: number;
 }
 
 function arrayIlike(column: Column, value: string): SQL {
   return sql`EXISTS (SELECT 1 FROM unnest(${column}) el WHERE el ILIKE ${`%${value}%`})`;
+}
+
+function arrayDoesNotIlike(column: Column, value: string): SQL {
+  return sql`NOT EXISTS (SELECT 1 FROM unnest(${column}) el WHERE el ILIKE ${`%${value}%`})`;
 }
 
 export function moviesRepository(db: Database) {
@@ -48,8 +55,23 @@ export function moviesRepository(db: Database) {
       if (params.genre) {
         conditions.push(arrayIlike(movies.genres, params.genre));
       }
+      if (params.genres && params.genres.length > 0) {
+        const genreConditions = params.genres.map((g) =>
+          arrayIlike(movies.genres, g),
+        );
+        const combined = or(...genreConditions);
+        if (combined) conditions.push(combined);
+      }
+      if (params.excludedGenres && params.excludedGenres.length > 0) {
+        for (const g of params.excludedGenres) {
+          conditions.push(arrayDoesNotIlike(movies.genres, g));
+        }
+      }
       if (params.year) {
         conditions.push(eq(movies.year, params.year));
+      }
+      if (params.maxRuntime !== undefined) {
+        conditions.push(lte(movies.runtime, params.maxRuntime));
       }
 
       return db

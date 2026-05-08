@@ -131,4 +131,101 @@ describe("moviesRepository", () => {
     });
     expect(noResults).toHaveLength(0);
   });
+
+  it("searchStructured with genres array matches any of the listed genres", async () => {
+    const repo = moviesRepository(db);
+
+    await repo.upsertFromTmdb({
+      tmdbId: 300,
+      title: "Bridesmaids",
+      year: 2011,
+      genres: ["Comedy"],
+      directors: ["Paul Feig"],
+      cast: ["Kristen Wiig"],
+      popularity: 60,
+      synopsis: null,
+      runtime: 125,
+      language: null,
+      posterUrl: null,
+      backdropUrl: null,
+      releaseDate: null,
+    });
+
+    const results = await repo.searchStructured({
+      genres: ["Comedy", "Romance"],
+    });
+    expect(results.some((m) => m.title === "Bridesmaids")).toBe(true);
+  });
+
+  it("searchStructured with excludedGenres filters them out", async () => {
+    const repo = moviesRepository(db);
+
+    await repo.upsertFromTmdb({
+      tmdbId: 301,
+      title: "The Conjuring",
+      year: 2013,
+      genres: ["Horror"],
+      directors: ["James Wan"],
+      cast: ["Vera Farmiga"],
+      popularity: 55,
+      synopsis: null,
+      runtime: 112,
+      language: null,
+      posterUrl: null,
+      backdropUrl: null,
+      releaseDate: null,
+    });
+
+    const results = await repo.searchStructured({
+      excludedGenres: ["Horror"],
+    });
+    expect(results.some((m) => m.title === "The Conjuring")).toBe(false);
+  });
+
+  it("searchStructured with maxRuntime filters by runtime ceiling", async () => {
+    const repo = moviesRepository(db);
+
+    await repo.upsertFromTmdb({
+      tmdbId: 302,
+      title: "Short Film",
+      year: 2020,
+      genres: ["Drama"],
+      directors: ["Someone"],
+      cast: ["Actor"],
+      popularity: 30,
+      synopsis: null,
+      runtime: 90,
+      language: null,
+      posterUrl: null,
+      backdropUrl: null,
+      releaseDate: null,
+    });
+    await repo.upsertFromTmdb({
+      tmdbId: 303,
+      title: "Long Epic",
+      year: 2020,
+      genres: ["Drama"],
+      directors: ["Someone"],
+      cast: ["Actor"],
+      popularity: 30,
+      synopsis: null,
+      runtime: 200,
+      language: null,
+      posterUrl: null,
+      backdropUrl: null,
+      releaseDate: null,
+    });
+
+    const results = await repo.searchStructured({
+      title: "Short Film",
+      maxRuntime: 120,
+    });
+    expect(results.some((m) => m.title === "Short Film")).toBe(true);
+
+    const tooLong = await repo.searchStructured({
+      title: "Long Epic",
+      maxRuntime: 120,
+    });
+    expect(tooLong.some((m) => m.title === "Long Epic")).toBe(false);
+  });
 });
