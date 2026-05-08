@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createAgentClient } from "@/lib/ag-ui/client";
+import { applyMessage, clearAllSurfaces } from "@/lib/a2ui/store";
+import type { A2UIMessage } from "@repo/contracts";
 import type { HttpAgent, Message } from "@ag-ui/client";
 
 interface PendingApproval {
@@ -73,6 +75,11 @@ export function useAgentChat() {
         });
       },
 
+      onCustomEvent({ event }) {
+        if (event.name !== "a2ui") return;
+        applyMessage(event.value as A2UIMessage);
+      },
+
       onToolCallEndEvent({ event, toolCallName, toolCallArgs }) {
         pendingToolCallsRef.current.set(event.toolCallId, {
           toolName: toolCallName,
@@ -137,6 +144,7 @@ export function useAgentChat() {
       setToolResults([]);
       setIsLoading(true);
       pendingToolCallsRef.current.clear();
+      clearAllSurfaces();
 
       setMessages((prev) => [
         ...prev,

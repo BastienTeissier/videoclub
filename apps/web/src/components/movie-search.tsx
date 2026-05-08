@@ -8,7 +8,7 @@ import { useWatchlist } from "@/contexts/watchlist-context";
 import { useReviews } from "@/contexts/review-context";
 import { useChatResults } from "@/contexts/chat-results-context";
 import { A2UIRenderer } from "@/lib/a2ui/registry";
-import { MovieCard } from "./movie-card";
+import { useA2UISurface } from "@/lib/a2ui/store";
 
 export function MovieSearch() {
   const [query, setQuery] = useState("");
@@ -24,56 +24,45 @@ export function MovieSearch() {
   const { refetch } = useWatchlist();
   const { refetch: refetchReviews } = useReviews();
   const {
-    movies: persistedMovies,
     a2uiSurface: persistedA2UISurface,
     clarification,
-    setMovies,
     setA2UISurface,
     setClarification,
   } = useChatResults();
 
+  const discoverySurface = useA2UISurface("discovery");
+  const watchlistSurface = useA2UISurface("watchlist");
+  const reviewsSurface = useA2UISurface("reviews");
+
   // Track previous toolResults to detect new results
   const prevToolResultsRef = useRef<typeof toolResults | null>(null);
 
-  // Project transient toolResults into persistent context
+  // Project transient toolResults into persistent context for tagged-union surfaces
+  // (review-form) and side effects (clarification, watchlist refetch, reviews refetch).
+  // Discovery / watchlist_show / review_show now flow through the A2UI store via
+  // CUSTOM events, not through this projection.
   useEffect(() => {
     if (toolResults.length === 0) return;
     if (toolResults === prevToolResultsRef.current) return;
     prevToolResultsRef.current = toolResults;
 
-    // Check for search results
-    const searchMovies: MovieDto[] = [];
-    for (const tr of toolResults) {
-      if (
-        (tr.toolName === "search_movies" || tr.toolName === "search_tmdb") &&
-        Array.isArray(tr.result)
-      ) {
-        searchMovies.push(...(tr.result as MovieDto[]));
-      }
-    }
-    if (searchMovies.length > 0) {
-      setMovies(searchMovies);
-      return;
-    }
-
-    // Check for A2UI surfaces (watchlist_show, review_add, review_show)
-    const surfaceResult = toolResults.find(
+    // review_add still emits a tagged-union review-form surface
+    const reviewFormResult = toolResults.find(
       (tr) =>
-        (tr.toolName === "watchlist_show" ||
-          tr.toolName === "review_add" ||
-          tr.toolName === "review_show") &&
+        tr.toolName === "review_add" &&
         tr.result &&
         typeof tr.result === "object" &&
-        "type" in tr.result,
+        "type" in tr.result &&
+        (tr.result as { type: string }).type === "review-form",
     );
-    if (surfaceResult) {
+    if (reviewFormResult) {
       setA2UISurface(
-        surfaceResult.result as { type: string; [key: string]: unknown },
+        reviewFormResult.result as { type: string; [key: string]: unknown },
       );
       return;
     }
 
-    // Check for clarification results
+    // Clarification flows
     for (const tr of toolResults) {
       if (
         (tr.toolName === "watchlist_add" ||
@@ -93,7 +82,7 @@ export function MovieSearch() {
       }
     }
 
-    // Check for successful add/remove → trigger refetch
+    // Successful add/remove → trigger watchlist refetch
     for (const tr of toolResults) {
       if (
         (tr.toolName === "watchlist_add" || tr.toolName === "watchlist_remove") &&
@@ -106,7 +95,7 @@ export function MovieSearch() {
       }
     }
 
-    // Check for successful review_delete → refetch reviews
+    // Successful review_delete → refetch reviews
     for (const tr of toolResults) {
       if (
         tr.toolName === "review_delete" &&
@@ -121,7 +110,6 @@ export function MovieSearch() {
     }
   }, [
     toolResults,
-    setMovies,
     setA2UISurface,
     setClarification,
     refetch,
@@ -131,7 +119,6 @@ export function MovieSearch() {
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
-    setMovies([]);
     sendMessage(query.trim());
     setQuery("");
   }
@@ -147,10 +134,12 @@ export function MovieSearch() {
     } else {
       msg = `${action} [movieId:${movie.id}] ${titleAndYear} ${action === "add" ? "to" : "from"} my watchlist`;
     }
-    setMovies([]);
     setClarification(null);
     sendMessage(msg);
   }
+
+  const hasProtocolSurface =
+    !!discoverySurface || !!watchlistSurface || !!reviewsSurface;
 
   return (
     <div className="w-full max-w-2xl mx-auto">
@@ -169,10 +158,7 @@ export function MovieSearch() {
           type="button"
           variant="secondary"
           size="sm"
-          onClick={() => {
-            setMovies([]);
-            sendMessage("show my reviews");
-          }}
+          onClick={() => sendMessage("show my reviews")}
           disabled={isLoading}
         >
           My Reviews
@@ -181,7 +167,7 @@ export function MovieSearch() {
 
       <div className="mt-6">
         {isLoading &&
-          persistedMovies.length === 0 &&
+          !hasProtocolSurface &&
           !persistedA2UISurface &&
           !clarification && (
             <p className="text-sm text-muted">Thinking...</p>
@@ -228,13 +214,9 @@ export function MovieSearch() {
           <A2UIRenderer surface={persistedA2UISurface} />
         )}
 
-        {persistedMovies.length > 0 && (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {persistedMovies.map((movie) => (
-              <MovieCard key={movie.id} movie={movie} />
-            ))}
-          </div>
-        )}
+        {discoverySurface && <A2UIRenderer surfaceId="discovery" />}
+        {watchlistSurface && <A2UIRenderer surfaceId="watchlist" />}
+        {reviewsSurface && <A2UIRenderer surfaceId="reviews" />}
       </div>
     </div>
   );

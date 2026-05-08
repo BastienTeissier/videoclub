@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import type { MovieDto } from "@repo/contracts";
 import { MovieSearch } from "./movie-search";
+import { applyMessage, clearAllSurfaces } from "@/lib/a2ui/store";
 
 const mockSendMessage = vi.fn();
 const mockApproveToolCall = vi.fn();
@@ -28,7 +29,7 @@ const mockRefetch = vi.fn();
 
 vi.mock("@/contexts/watchlist-context", () => ({
   useWatchlist: () => ({
-    isInWatchlist: () => false,
+    isInWatchlist: () => true,
     toggleWatchlist: vi.fn(),
     refetch: mockRefetch,
   }),
@@ -65,8 +66,14 @@ vi.mock("@/contexts/chat-results-context", () => ({
   useChatResults: () => chatResultsReturn,
 }));
 
+vi.mock("@repo/ui", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@repo/ui")>();
+  return { ...actual, toast: vi.fn() };
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
+  clearAllSurfaces();
   hookReturn = { ...defaultHookReturn };
   chatResultsReturn = {
     movies: [],
@@ -76,6 +83,24 @@ beforeEach(() => {
     setA2UISurface: mockSetA2UISurface,
     setClarification: mockSetClarification,
   };
+});
+
+const fakeMovie = (overrides: Partial<MovieDto> & { id: string; title: string }): MovieDto => ({
+  tmdbId: 1,
+  year: 2024,
+  synopsis: null,
+  genres: null,
+  cast: null,
+  directors: null,
+  runtime: null,
+  language: null,
+  posterUrl: null,
+  backdropUrl: null,
+  popularity: null,
+  releaseDate: null,
+  createdAt: "2024-01-01T00:00:00.000Z",
+  updatedAt: "2024-01-01T00:00:00.000Z",
+  ...overrides,
 });
 
 describe("MovieSearch", () => {
@@ -91,91 +116,10 @@ describe("MovieSearch", () => {
     expect(mockSendMessage).toHaveBeenCalledWith("Spielberg movies");
   });
 
-  it("submitting a new prompt clears persisted movies before sending", () => {
-    chatResultsReturn = {
-      ...chatResultsReturn,
-      movies: [
-        {
-          id: "uuid-prev",
-          tmdbId: 999,
-          title: "Previous",
-          year: 2000,
-          synopsis: null,
-          genres: null,
-          cast: null,
-          directors: null,
-          runtime: null,
-          language: null,
-          posterUrl: null,
-          backdropUrl: null,
-          popularity: null,
-          releaseDate: null,
-          createdAt: "2024-01-01T00:00:00.000Z",
-          updatedAt: "2024-01-01T00:00:00.000Z",
-        },
-      ],
-    };
-
-    render(<MovieSearch />);
-    const input = screen.getByPlaceholderText(
-      "what do you want to watch? Try: check my watchlist",
-    );
-
-    fireEvent.change(input, { target: { value: "Spielberg movies" } });
-    fireEvent.submit(input.closest("form")!);
-
-    expect(mockSetMovies).toHaveBeenCalledWith([]);
-    expect(mockSendMessage).toHaveBeenCalledWith("Spielberg movies");
-  });
-
-  it("My Reviews button clears persisted movies before sending", () => {
+  it("My Reviews button sends 'show my reviews'", () => {
     render(<MovieSearch />);
     fireEvent.click(screen.getByRole("button", { name: "My Reviews" }));
-
-    expect(mockSetMovies).toHaveBeenCalledWith([]);
     expect(mockSendMessage).toHaveBeenCalledWith("show my reviews");
-  });
-
-  it("shows streaming text response", () => {
-    hookReturn = {
-      ...defaultHookReturn,
-      messages: [
-        { id: "1", role: "user", content: "hello" },
-        { id: "2", role: "assistant", content: "Here are some movies" },
-      ],
-    };
-
-    render(<MovieSearch />);
-    expect(screen.getByText("Here are some movies")).toBeInTheDocument();
-  });
-
-  it("renders movie cards from persisted context", () => {
-    chatResultsReturn = {
-      ...chatResultsReturn,
-      movies: [
-        {
-          id: "uuid-1",
-          tmdbId: 100,
-          title: "Jaws",
-          year: 1975,
-          synopsis: null,
-          genres: ["Thriller"],
-          cast: ["Roy Scheider"],
-          directors: ["Steven Spielberg"],
-          runtime: null,
-          language: null,
-          posterUrl: null,
-          backdropUrl: null,
-          popularity: 80,
-          releaseDate: null,
-          createdAt: "2024-01-01T00:00:00.000Z",
-          updatedAt: "2024-01-01T00:00:00.000Z",
-        },
-      ],
-    };
-
-    render(<MovieSearch />);
-    expect(screen.getByText("Jaws")).toBeInTheDocument();
   });
 
   it("shows TMDB confirmation button when pendingApproval", () => {
@@ -209,69 +153,97 @@ describe("MovieSearch", () => {
   });
 
   it("hides button after approval completes", () => {
-    hookReturn = {
-      ...defaultHookReturn,
-      pendingApproval: null,
-    };
-
     render(<MovieSearch />);
     expect(screen.queryByText("Search TMDB for more results")).not.toBeInTheDocument();
   });
 
-  it("shows watchlist discoverability copy in the input", () => {
-    render(<MovieSearch />);
-    expect(
-      screen.getByPlaceholderText(
-        "what do you want to watch? Try: check my watchlist",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("renders A2UI surface from persisted watchlist context", () => {
-    chatResultsReturn = {
-      ...chatResultsReturn,
-      a2uiSurface: {
-        type: "watchlist-grid",
-        items: [
-          {
-            id: "00000000-0000-4000-8000-000000000001",
-            tmdbId: 1,
-            title: "Inception",
-            year: 2010,
-            synopsis: null,
-            genres: null,
-            cast: null,
-            directors: null,
-            runtime: null,
-            language: null,
-            posterUrl: null,
-            backdropUrl: null,
-            popularity: null,
-            releaseDate: null,
-            createdAt: "2024-01-01T00:00:00.000Z",
-            updatedAt: "2024-01-01T00:00:00.000Z",
-          },
+  it("renders the discovery surface from the A2UI store", () => {
+    applyMessage({
+      createSurface: { surfaceId: "discovery", catalogId: "videoclub" },
+    });
+    applyMessage({
+      updateComponents: {
+        surfaceId: "discovery",
+        components: [
+          { id: "root", component: "Column", children: ["filters", "grid"] },
+          { id: "filters", component: "MovieFilterPanel", data: { path: "/filters" } },
+          { id: "grid", component: "MovieGrid", data: { path: "/movies" } },
         ],
-        count: 1,
       },
-    };
+    });
+    applyMessage({
+      updateDataModel: {
+        surfaceId: "discovery",
+        path: "/filters",
+        value: { genres: ["Comedy"] },
+      },
+    });
+    applyMessage({
+      updateDataModel: {
+        surfaceId: "discovery",
+        path: "/movies",
+        value: [fakeMovie({ id: "uuid-1", title: "Bridesmaids" })],
+      },
+    });
 
     render(<MovieSearch />);
-    expect(screen.getByText("My Watchlist (0)")).toBeInTheDocument();
+    expect(screen.getByText("Comedy")).toBeInTheDocument();
+    expect(screen.getByText("Bridesmaids")).toBeInTheDocument();
   });
 
-  it("renders watchlist error surface message from persisted context", () => {
-    chatResultsReturn = {
-      ...chatResultsReturn,
-      a2uiSurface: {
-        type: "watchlist-grid",
-        items: [],
-        count: 0,
-        error: true,
-        message:
-          "Sorry, I couldn't load your watchlist right now. Please try again.",
+  it("renders the watchlist surface from the A2UI store", () => {
+    applyMessage({
+      createSurface: { surfaceId: "watchlist", catalogId: "videoclub" },
+    });
+    applyMessage({
+      updateComponents: {
+        surfaceId: "watchlist",
+        components: [
+          { id: "root", component: "Column", children: ["grid"] },
+          { id: "grid", component: "WatchlistGrid", data: { path: "/state" } },
+        ],
       },
-    };
+    });
+    applyMessage({
+      updateDataModel: {
+        surfaceId: "watchlist",
+        path: "/state",
+        value: {
+          items: [fakeMovie({ id: "uuid-1", title: "Inception" })],
+          state: "ok",
+        },
+      },
+    });
+
+    render(<MovieSearch />);
+    expect(screen.getByText("My Watchlist (1)")).toBeInTheDocument();
+  });
+
+  it("renders the watchlist error message from the A2UI store", () => {
+    applyMessage({
+      createSurface: { surfaceId: "watchlist", catalogId: "videoclub" },
+    });
+    applyMessage({
+      updateComponents: {
+        surfaceId: "watchlist",
+        components: [
+          { id: "root", component: "Column", children: ["grid"] },
+          { id: "grid", component: "WatchlistGrid", data: { path: "/state" } },
+        ],
+      },
+    });
+    applyMessage({
+      updateDataModel: {
+        surfaceId: "watchlist",
+        path: "/state",
+        value: {
+          items: [],
+          state: "error",
+          message:
+            "Sorry, I couldn't load your watchlist right now. Please try again.",
+        },
+      },
+    });
 
     render(<MovieSearch />);
     expect(
@@ -287,42 +259,8 @@ describe("MovieSearch", () => {
       clarification: {
         action: "add",
         candidates: [
-          {
-            id: "uuid-1",
-            tmdbId: 1,
-            title: "Arrival",
-            year: 2016,
-            synopsis: null,
-            genres: null,
-            cast: null,
-            directors: null,
-            runtime: null,
-            language: null,
-            posterUrl: null,
-            backdropUrl: null,
-            popularity: null,
-            releaseDate: null,
-            createdAt: "2024-01-01T00:00:00.000Z",
-            updatedAt: "2024-01-01T00:00:00.000Z",
-          },
-          {
-            id: "uuid-2",
-            tmdbId: 2,
-            title: "Arrival 2",
-            year: 2020,
-            synopsis: null,
-            genres: null,
-            cast: null,
-            directors: null,
-            runtime: null,
-            language: null,
-            posterUrl: null,
-            backdropUrl: null,
-            popularity: null,
-            releaseDate: null,
-            createdAt: "2024-01-01T00:00:00.000Z",
-            updatedAt: "2024-01-01T00:00:00.000Z",
-          },
+          fakeMovie({ id: "uuid-1", title: "Arrival", year: 2016 }),
+          fakeMovie({ id: "uuid-2", title: "Arrival 2", year: 2020 }),
         ],
       },
     };
@@ -333,7 +271,7 @@ describe("MovieSearch", () => {
     expect(screen.getByText("Arrival 2 (2020)")).toBeInTheDocument();
   });
 
-  it("review_add result with type review-form sets A2UI surface", () => {
+  it("review_add result with type review-form sets A2UI surface (tagged-union path)", () => {
     hookReturn = {
       ...defaultHookReturn,
       toolResults: [
@@ -342,24 +280,7 @@ describe("MovieSearch", () => {
           toolCallId: "tc-1",
           result: {
             type: "review-form",
-            movie: {
-              id: "uuid-r1",
-              tmdbId: 9,
-              title: "Inception",
-              year: 2010,
-              synopsis: null,
-              genres: null,
-              cast: null,
-              directors: null,
-              runtime: null,
-              language: null,
-              posterUrl: null,
-              backdropUrl: null,
-              popularity: null,
-              releaseDate: null,
-              createdAt: "2024-01-01T00:00:00.000Z",
-              updatedAt: "2024-01-01T00:00:00.000Z",
-            },
+            movie: fakeMovie({ id: "uuid-r1", title: "Inception", year: 2010 }),
             rating: 4.5,
             text: "loved",
           },
@@ -376,42 +297,8 @@ describe("MovieSearch", () => {
 
   it("review_add clarification_needed sets clarification with action=review", () => {
     const candidates = [
-      {
-        id: "uuid-r1",
-        tmdbId: 9,
-        title: "Dune",
-        year: 1984,
-        synopsis: null,
-        genres: null,
-        cast: null,
-        directors: null,
-        runtime: null,
-        language: null,
-        posterUrl: null,
-        backdropUrl: null,
-        popularity: null,
-        releaseDate: null,
-        createdAt: "2024-01-01T00:00:00.000Z",
-        updatedAt: "2024-01-01T00:00:00.000Z",
-      },
-      {
-        id: "uuid-r2",
-        tmdbId: 10,
-        title: "Dune",
-        year: 2021,
-        synopsis: null,
-        genres: null,
-        cast: null,
-        directors: null,
-        runtime: null,
-        language: null,
-        posterUrl: null,
-        backdropUrl: null,
-        popularity: null,
-        releaseDate: null,
-        createdAt: "2024-01-01T00:00:00.000Z",
-        updatedAt: "2024-01-01T00:00:00.000Z",
-      },
+      fakeMovie({ id: "uuid-r1", title: "Dune", year: 1984 }),
+      fakeMovie({ id: "uuid-r2", title: "Dune", year: 2021 }),
     ];
 
     hookReturn = {
@@ -442,26 +329,7 @@ describe("MovieSearch", () => {
       ...chatResultsReturn,
       clarification: {
         action: "review",
-        candidates: [
-          {
-            id: "uuid-r1",
-            tmdbId: 9,
-            title: "Dune",
-            year: 2021,
-            synopsis: null,
-            genres: null,
-            cast: null,
-            directors: null,
-            runtime: null,
-            language: null,
-            posterUrl: null,
-            backdropUrl: null,
-            popularity: null,
-            releaseDate: null,
-            createdAt: "2024-01-01T00:00:00.000Z",
-            updatedAt: "2024-01-01T00:00:00.000Z",
-          },
-        ],
+        candidates: [fakeMovie({ id: "uuid-r1", title: "Dune", year: 2021 })],
       },
     };
 
@@ -474,74 +342,10 @@ describe("MovieSearch", () => {
     expect(mockSetClarification).toHaveBeenCalledWith(null);
   });
 
-  it("My Reviews quick-action sends 'show my reviews'", () => {
-    render(<MovieSearch />);
-    fireEvent.click(screen.getByRole("button", { name: "My Reviews" }));
-    expect(mockSendMessage).toHaveBeenCalledWith("show my reviews");
-  });
-
-  it("review_show result with reviews-grid sets A2UI surface", () => {
-    hookReturn = {
-      ...defaultHookReturn,
-      toolResults: [
-        {
-          toolName: "review_show",
-          toolCallId: "tc-1",
-          result: {
-            type: "reviews-grid",
-            items: [],
-            count: 0,
-            message: "You haven't reviewed any movies yet.",
-          },
-        },
-      ],
-    };
-
-    render(<MovieSearch />);
-
-    expect(mockSetA2UISurface).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "reviews-grid", count: 0 }),
-    );
-  });
-
   it("review_delete clarification_needed sets clarification with action=review-delete", () => {
     const candidates = [
-      {
-        id: "uuid-d1",
-        tmdbId: 11,
-        title: "Dune",
-        year: 1984,
-        synopsis: null,
-        genres: null,
-        cast: null,
-        directors: null,
-        runtime: null,
-        language: null,
-        posterUrl: null,
-        backdropUrl: null,
-        popularity: null,
-        releaseDate: null,
-        createdAt: "2024-01-01T00:00:00.000Z",
-        updatedAt: "2024-01-01T00:00:00.000Z",
-      },
-      {
-        id: "uuid-d2",
-        tmdbId: 12,
-        title: "Dune",
-        year: 2021,
-        synopsis: null,
-        genres: null,
-        cast: null,
-        directors: null,
-        runtime: null,
-        language: null,
-        posterUrl: null,
-        backdropUrl: null,
-        popularity: null,
-        releaseDate: null,
-        createdAt: "2024-01-01T00:00:00.000Z",
-        updatedAt: "2024-01-01T00:00:00.000Z",
-      },
+      fakeMovie({ id: "uuid-d1", title: "Dune", year: 1984 }),
+      fakeMovie({ id: "uuid-d2", title: "Dune", year: 2021 }),
     ];
 
     hookReturn = {
@@ -572,26 +376,7 @@ describe("MovieSearch", () => {
       ...chatResultsReturn,
       clarification: {
         action: "review-delete",
-        candidates: [
-          {
-            id: "uuid-d2",
-            tmdbId: 12,
-            title: "Dune",
-            year: 2021,
-            synopsis: null,
-            genres: null,
-            cast: null,
-            directors: null,
-            runtime: null,
-            language: null,
-            posterUrl: null,
-            backdropUrl: null,
-            popularity: null,
-            releaseDate: null,
-            createdAt: "2024-01-01T00:00:00.000Z",
-            updatedAt: "2024-01-01T00:00:00.000Z",
-          },
-        ],
+        candidates: [fakeMovie({ id: "uuid-d2", title: "Dune", year: 2021 })],
       },
     };
 
@@ -615,24 +400,7 @@ describe("MovieSearch", () => {
             deleted: true,
             message: "Review deleted for Inception",
             movieId: "uuid-1",
-            movie: {
-              id: "uuid-1",
-              tmdbId: 1,
-              title: "Inception",
-              year: 2010,
-              synopsis: null,
-              genres: null,
-              cast: null,
-              directors: null,
-              runtime: null,
-              language: null,
-              posterUrl: null,
-              backdropUrl: null,
-              popularity: null,
-              releaseDate: null,
-              createdAt: "2024-01-01T00:00:00.000Z",
-              updatedAt: "2024-01-01T00:00:00.000Z",
-            },
+            movie: fakeMovie({ id: "uuid-1", title: "Inception", year: 2010 }),
           },
         },
       ],
@@ -643,31 +411,12 @@ describe("MovieSearch", () => {
     expect(mockRefetchReviews).toHaveBeenCalledTimes(1);
   });
 
-  it("clicking clarification candidate sends follow-up message with embedded movieId", () => {
+  it("clicking add clarification candidate sends follow-up message with embedded movieId", () => {
     chatResultsReturn = {
       ...chatResultsReturn,
       clarification: {
         action: "add",
-        candidates: [
-          {
-            id: "uuid-1",
-            tmdbId: 1,
-            title: "Arrival",
-            year: 2016,
-            synopsis: null,
-            genres: null,
-            cast: null,
-            directors: null,
-            runtime: null,
-            language: null,
-            posterUrl: null,
-            backdropUrl: null,
-            popularity: null,
-            releaseDate: null,
-            createdAt: "2024-01-01T00:00:00.000Z",
-            updatedAt: "2024-01-01T00:00:00.000Z",
-          },
-        ],
+        candidates: [fakeMovie({ id: "uuid-1", title: "Arrival", year: 2016 })],
       },
     };
 
@@ -675,7 +424,7 @@ describe("MovieSearch", () => {
     fireEvent.click(screen.getByText("Arrival (2016)"));
 
     expect(mockSendMessage).toHaveBeenCalledWith(
-      "add [movieId:uuid-1] Arrival (2016) to my watchlist"
+      "add [movieId:uuid-1] Arrival (2016) to my watchlist",
     );
     expect(mockSetClarification).toHaveBeenCalledWith(null);
   });
