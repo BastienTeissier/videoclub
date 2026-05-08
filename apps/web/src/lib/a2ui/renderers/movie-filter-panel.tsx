@@ -2,7 +2,7 @@
 
 import { useA2UISurface } from "../store";
 import { get } from "../json-pointer";
-import type { RendererProps } from "../catalog";
+import type { RendererProps } from "../renderer-types";
 
 interface FilterChips {
   genres?: string[];

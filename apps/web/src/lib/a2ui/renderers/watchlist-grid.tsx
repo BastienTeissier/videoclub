@@ -5,7 +5,7 @@ import { useWatchlist } from "@/contexts/watchlist-context";
 import { MovieCard } from "@/components/movie-card";
 import { useA2UISurface } from "../store";
 import { get } from "../json-pointer";
-import type { RendererProps } from "../catalog";
+import type { RendererProps } from "../renderer-types";
 
 interface GridState {
   items: MovieDto[];

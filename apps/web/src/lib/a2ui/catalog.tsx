@@ -8,13 +8,10 @@ import { MovieFilterPanel } from "./renderers/movie-filter-panel";
 import { MovieGrid } from "./renderers/movie-grid";
 import { WatchlistGrid } from "./renderers/watchlist-grid";
 import { ReviewsGrid } from "./renderers/reviews-grid";
+import { getSurface } from "./store";
+import type { Renderer } from "./renderer-types";
 
-export interface RendererProps {
-  node: ComponentNode;
-  surfaceId: string;
-}
-
-export type Renderer = (props: RendererProps) => ReactNode;
+export type { Renderer, RendererProps } from "./renderer-types";
 
 const catalog: Record<string, Renderer> = {
   Column,
@@ -35,5 +32,21 @@ export function renderComponent(
     console.warn(`[a2ui] unknown component "${node.component}" — skipping`);
     return null;
   }
-  return <Comp node={node} surfaceId={surfaceId} />;
+
+  const childIds = node.children ?? [];
+  const surface = getSurface(surfaceId);
+  const children =
+    childIds.length > 0
+      ? childIds.map((id) => (
+          <div key={id}>
+            {renderComponent(surface?.components[id], surfaceId)}
+          </div>
+        ))
+      : undefined;
+
+  return (
+    <Comp node={node} surfaceId={surfaceId}>
+      {children}
+    </Comp>
+  );
 }
