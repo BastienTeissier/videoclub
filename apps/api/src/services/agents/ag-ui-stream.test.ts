@@ -122,6 +122,139 @@ describe("streamAgUiEvents", () => {
     expect(types).not.toContain("TOOL_CALL_RESULT");
   });
 
+  it("emits one CUSTOM:a2ui per a2uiMessage in order, before TOOL_CALL_RESULT", async () => {
+    const a2uiMessages = [
+      { createSurface: { surfaceId: "discovery", catalogId: "videoclub" } },
+      {
+        updateComponents: {
+          surfaceId: "discovery",
+          components: [{ id: "root", component: "Column", children: [] }],
+        },
+      },
+      { updateDataModel: { surfaceId: "discovery", path: "/movies", value: [] } },
+    ];
+
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: { view: "grid" },
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-result",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: { view: "grid" },
+        output: { data: { movies: [] }, a2uiMessages },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), options);
+    const events = await collectEvents(stream);
+    const types = events.map(parseEventType);
+
+    const customIdxs = types
+      .map((t, i) => (t === "CUSTOM" ? i : -1))
+      .filter((i) => i >= 0);
+    expect(customIdxs).toHaveLength(3);
+    const resultIdx = types.indexOf("TOOL_CALL_RESULT");
+    expect(customIdxs[customIdxs.length - 1]).toBeLessThan(resultIdx);
+
+    const customEncoded = events[customIdxs[0]!]!;
+    expect(customEncoded).toContain('"name":"a2ui"');
+  });
+
+  it("strips a2uiMessages from TOOL_CALL_RESULT content", async () => {
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: {},
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-result",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: {},
+        output: {
+          data: { movies: [{ id: "m1" }] },
+          a2uiMessages: [{ createSurface: { surfaceId: "x", catalogId: "y" } }],
+        },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), options);
+    const events = await collectEvents(stream);
+    const resultEvent = events.find((e) => parseEventType(e) === "TOOL_CALL_RESULT");
+    expect(resultEvent).toBeDefined();
+    expect(resultEvent).not.toContain("a2uiMessages");
+    expect(resultEvent).toContain("\\\"data\\\"");
+  });
+
+  it("DEMO_MODE_SLEEP=100 inserts >=100ms gap between consecutive CUSTOM emissions", async () => {
+    const original = process.env.DEMO_MODE_SLEEP;
+    process.env.DEMO_MODE_SLEEP = "100";
+
+    try {
+      const a2uiMessages = [
+        { createSurface: { surfaceId: "s", catalogId: "videoclub" } },
+        { updateDataModel: { surfaceId: "s", path: "/x", value: 1 } },
+      ];
+
+      const parts: TextStreamPart<ToolSet>[] = [
+        {
+          type: "tool-call",
+          toolCallId: "tc-1",
+          toolName: "discovery",
+          input: {},
+        } as TextStreamPart<ToolSet>,
+        {
+          type: "tool-result",
+          toolCallId: "tc-1",
+          toolName: "discovery",
+          input: {},
+          output: { data: {}, a2uiMessages },
+        } as TextStreamPart<ToolSet>,
+      ];
+
+      const stream = streamAgUiEvents(mockStream(parts), options);
+      const stamps: number[] = [];
+      for await (const event of stream) {
+        if (parseEventType(event) === "CUSTOM") stamps.push(Date.now());
+      }
+      expect(stamps).toHaveLength(2);
+      expect(stamps[1]! - stamps[0]!).toBeGreaterThanOrEqual(95);
+    } finally {
+      if (original === undefined) delete process.env.DEMO_MODE_SLEEP;
+      else process.env.DEMO_MODE_SLEEP = original;
+    }
+  });
+
+  it("does not emit CUSTOM when output has no a2uiMessages", async () => {
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "search_tmdb",
+        input: { query: "x" },
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-result",
+        toolCallId: "tc-1",
+        toolName: "search_tmdb",
+        input: { query: "x" },
+        output: [{ id: "m1" }],
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), options);
+    const events = await collectEvents(stream);
+    const types = events.map(parseEventType);
+    expect(types).not.toContain("CUSTOM");
+  });
+
   it("emits RUN_ERROR on stream error", async () => {
     // eslint-disable-next-line require-yield
     async function* errorStream(): AsyncGenerator<TextStreamPart<ToolSet>> {

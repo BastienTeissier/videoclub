@@ -1,10 +1,37 @@
 import { EventEncoder } from "@ag-ui/encoder";
 import { EventType } from "@ag-ui/core";
 import type { TextStreamPart, ToolSet } from "ai";
+import type { A2UIMessage } from "@repo/contracts";
 
 interface StreamAgUiOptions {
   threadId: string;
   runId: string;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getDemoSleepMs(): number {
+  const raw = process.env.DEMO_MODE_SLEEP;
+  if (!raw) return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function extractA2UIMessages(output: unknown): A2UIMessage[] | undefined {
+  if (!output || typeof output !== "object") return undefined;
+  const maybe = (output as { a2uiMessages?: unknown }).a2uiMessages;
+  return Array.isArray(maybe) ? (maybe as A2UIMessage[]) : undefined;
+}
+
+function stripA2UIMessages(output: unknown): unknown {
+  if (!output || typeof output !== "object" || !("a2uiMessages" in output)) {
+    return output;
+  }
+  const { a2uiMessages: _ignored, ...rest } = output as Record<string, unknown>;
+  void _ignored;
+  return rest;
 }
 
 export async function* streamAgUiEvents(
@@ -77,11 +104,24 @@ export async function* streamAgUiEvents(
         }
 
         case "tool-result": {
+          const a2uiMessages = extractA2UIMessages(part.output);
+          if (a2uiMessages) {
+            const sleepMs = getDemoSleepMs();
+            for (let i = 0; i < a2uiMessages.length; i++) {
+              if (sleepMs > 0 && i > 0) await sleep(sleepMs);
+              yield encoder.encode({
+                type: EventType.CUSTOM,
+                name: "a2ui",
+                value: a2uiMessages[i],
+              });
+            }
+          }
+          const sanitizedOutput = stripA2UIMessages(part.output);
           yield encoder.encode({
             type: EventType.TOOL_CALL_RESULT,
             toolCallId: part.toolCallId,
             messageId: `tool-result-${part.toolCallId}`,
-            content: JSON.stringify(part.output),
+            content: JSON.stringify(sanitizedOutput),
           });
           break;
         }

@@ -6,7 +6,7 @@ import {
   type ToolSet,
 } from "ai";
 import { getModel } from "../../lib/ai-provider.js";
-import { createSearchMoviesTool } from "../../features/tools/search-movies.js";
+import { createDiscoveryTool } from "../../features/tools/discovery.js";
 import { createSearchTmdbTool } from "../../features/tools/search-tmdb.js";
 import { createWatchlistShowTool } from "../../features/tools/watchlist-show.js";
 import { createWatchlistAddTool } from "../../features/tools/watchlist-add.js";
@@ -23,16 +23,16 @@ import type { Database } from "@repo/db";
 
 const SYSTEM_PROMPT = `You are a movie expert assistant. Your job is to help users find movies from the local database.
 
-When a user asks about movies, extract structured search parameters from their natural language query and use the search_movies tool.
+When a user asks for movies to watch, call the discovery tool. Extract structured filters from the natural-language query and pass them under "filters":
+- title, director, actor, year for direct attributes
+- genres: string[] when one or more genres are implied (e.g. "comedy" -> ["Comedy"])
+- excludedGenres: string[] when the user rules genres out (e.g. "no horror" -> ["Horror"])
+- maxRuntime: number (minutes) when a runtime ceiling is implied (e.g. "under 2h" -> 120)
+- moods: string[] for tone hints (e.g. "feel-good", "tense") — these are echoed in the UI but not enforced in the DB query
 
-- Extract director, actor, genre, title, or year when mentioned
-- If the user mentions a person, determine whether they are likely a director or actor
-- Use the tool to search, then present the results in a friendly way
-- If no results are found, suggest broadening the search
+Always pass view: "grid" for now. The discovery tool returns the search results as a progressive A2UI surface — do not summarize the resulting grid in text; the UI renders it.
 
-Always use the search_movies tool to find movies — do not make up movie information.
-
-If local search results are insufficient (0 results, results don't match user intent, or user explicitly asks for more), call the search_tmdb tool to search TMDB for additional results. Do NOT call search_tmdb when local results already satisfy the query.
+If discovery returns no movies (or results don't match user intent, or user explicitly asks for more), call the search_tmdb tool to search TMDB for additional results. Do NOT call search_tmdb when local results already satisfy the query.
 
 When the user asks to see, show, check, or view their watchlist (e.g. "show my watchlist", "what's on my watchlist", "check my watchlist"), use the watchlist_show tool.
 
@@ -186,7 +186,7 @@ export async function runOrchestrator({
     system: SYSTEM_PROMPT,
     messages: allMessages,
     tools: {
-      search_movies: createSearchMoviesTool(db),
+      discovery: createDiscoveryTool(db),
       search_tmdb: createSearchTmdbTool(db),
       watchlist_show: createWatchlistShowTool(db, userId),
       watchlist_add: createWatchlistAddTool(db, userId),

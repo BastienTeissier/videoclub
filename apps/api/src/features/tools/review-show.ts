@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { Database } from "@repo/db";
 import { reviewService } from "../../services/review.js";
+import { reviewsGridMessages } from "../../services/agents/a2ui-emitter.js";
 
 export function createReviewShowTool(db: Database, userId: string) {
   const service = reviewService(db);
@@ -14,29 +15,34 @@ export function createReviewShowTool(db: Database, userId: string) {
     execute: async () => {
       try {
         const { items, count } = await service.list(userId);
+        const message =
+          count === 0 ? "You haven't reviewed any movies yet." : undefined;
 
-        if (count === 0) {
-          return {
+        return {
+          data: {
+            type: "reviews-grid" as const,
+            items,
+            count,
+            ...(message ? { message } : {}),
+          },
+          a2uiMessages: reviewsGridMessages({ items, message }),
+        };
+      } catch {
+        const errorMessage =
+          "Sorry, I couldn't load your reviews right now. Please try again.";
+        return {
+          data: {
             type: "reviews-grid" as const,
             items: [],
             count: 0,
-            message: "You haven't reviewed any movies yet.",
-          };
-        }
-
-        return {
-          type: "reviews-grid" as const,
-          items,
-          count,
-        };
-      } catch {
-        return {
-          type: "reviews-grid" as const,
-          items: [],
-          count: 0,
-          error: true,
-          message:
-            "Sorry, I couldn't load your reviews right now. Please try again.",
+            error: true,
+            message: errorMessage,
+          },
+          a2uiMessages: reviewsGridMessages({
+            items: [],
+            message: errorMessage,
+            error: true,
+          }),
         };
       }
     },

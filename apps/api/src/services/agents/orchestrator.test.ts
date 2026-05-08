@@ -10,8 +10,8 @@ vi.mock("../../lib/ai-provider.js", () => ({
   getModel: vi.fn(() => "mock-model"),
 }));
 
-vi.mock("../../features/tools/search-movies.js", () => ({
-  createSearchMoviesTool: vi.fn(() => ({ type: "search_movies_tool" })),
+vi.mock("../../features/tools/discovery.js", () => ({
+  createDiscoveryTool: vi.fn(() => ({ type: "discovery_tool" })),
 }));
 
 vi.mock("../../features/tools/search-tmdb.js", () => ({
@@ -119,7 +119,7 @@ beforeEach(() => {
 });
 
 describe("orchestrator", () => {
-  it("registers both search_movies and search_tmdb tools", async () => {
+  it("registers both discovery and search_tmdb tools", async () => {
     await runOrchestrator({
       db: fakeDb,
       userId: "user-1",
@@ -129,7 +129,7 @@ describe("orchestrator", () => {
     expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({
         tools: expect.objectContaining({
-          search_movies: expect.anything(),
+          discovery: expect.anything(),
           search_tmdb: expect.anything(),
         }),
       })
@@ -207,7 +207,7 @@ describe("orchestrator", () => {
 
     const call = mockStreamText.mock.calls[0]![0] as Record<string, unknown>;
     expect(call.system).toContain("search_tmdb");
-    expect(call.system).toContain("insufficient");
+    expect(call.system).toContain("discovery");
   });
 
   it("persists tool calls via onFinish callback", async () => {
@@ -216,10 +216,10 @@ describe("orchestrator", () => {
       steps: [
         {
           toolCalls: [
-            { toolCallId: "tc-1", toolName: "search_movies", input: { title: "test" } },
+            { toolCallId: "tc-1", toolName: "discovery", input: { filters: { title: "test" }, view: "grid" } },
           ],
           toolResults: [
-            { toolCallId: "tc-1", output: [{ id: "m1" }] },
+            { toolCallId: "tc-1", output: { data: { movies: [] }, a2uiMessages: [] } },
           ],
         },
       ],
@@ -237,7 +237,7 @@ describe("orchestrator", () => {
     expect(mockCreateToolCall).toHaveBeenCalledWith(
       expect.objectContaining({
         runId: "run-1",
-        toolName: "search_movies",
+        toolName: "discovery",
       })
     );
     expect(mockCompleteToolCall).toHaveBeenCalledWith("tc-1", expect.anything());
