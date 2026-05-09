@@ -5,13 +5,11 @@ import { Input, Button } from "@repo/ui";
 import {
   wireMutationOutcomeSchema,
   clarificationProposedSchema,
-  type DomainKey,
   type MovieDto,
 } from "@repo/contracts";
 import { useAgentChat } from "@/hooks/use-agent-chat";
-import { useWatchlist } from "@/contexts/watchlist-context";
-import { useReviews } from "@/contexts/review-context";
 import { useChatResults } from "@/contexts/chat-results-context";
+import { useDomainRefetchers } from "@/lib/domain-refetchers";
 import { A2UIRenderer } from "@/lib/a2ui/registry";
 import { useA2UISurface } from "@/lib/a2ui/store";
 
@@ -27,8 +25,7 @@ export function MovieSearch() {
     cancelInterrupt,
   } = useAgentChat();
 
-  const { refetch } = useWatchlist();
-  const { refetch: refetchReviews } = useReviews();
+  const refetchers = useDomainRefetchers();
   const {
     a2uiSurface: persistedA2UISurface,
     clarification,
@@ -51,11 +48,6 @@ export function MovieSearch() {
     if (toolResults.length === 0) return;
     if (toolResults === prevToolResultsRef.current) return;
     prevToolResultsRef.current = toolResults;
-
-    const refetchersByDomain: Record<DomainKey, () => void> = {
-      watchlist: refetch,
-      reviews: refetchReviews,
-    };
 
     // review_add still emits a tagged-union review-form surface (Amendment E pending)
     const reviewFormResult = toolResults.find(
@@ -99,11 +91,11 @@ export function MovieSearch() {
       const parsed = wireMutationOutcomeSchema.safeParse(tr.result);
       if (parsed.success && parsed.data.kind === "success") {
         for (const domain of parsed.data.affected) {
-          refetchersByDomain[domain]?.();
+          void refetchers[domain]?.();
         }
       }
     }
-  }, [toolResults, setA2UISurface, setClarification, refetch, refetchReviews]);
+  }, [toolResults, setA2UISurface, setClarification, refetchers]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();

@@ -4,16 +4,22 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
-  useRef,
-  useState,
+  useMemo,
 } from "react";
-import type { AddToWatchlistResponse, RemoveFromWatchlistResponse } from "@repo/contracts";
+import type {
+  AddToWatchlistResponse,
+  RemoveFromWatchlistResponse,
+} from "@repo/contracts";
 import {
   addToWatchlist as apiAdd,
   removeFromWatchlist as apiRemove,
   fetchWatchlist,
 } from "@/lib/api/watchlist";
+import { useDomainCollection } from "@/hooks/use-domain-collection";
+
+interface WatchlistMovie {
+  id: string;
+}
 
 interface WatchlistContextValue {
   watchlistedIds: Set<string>;
@@ -27,81 +33,51 @@ interface WatchlistContextValue {
 const WatchlistContext = createContext<WatchlistContextValue | null>(null);
 
 export function WatchlistProvider({ children }: { children: React.ReactNode }) {
-  const [watchlistedIds, setWatchlistedIds] = useState<Set<string>>(new Set());
-  const requestCounters = useRef(new Map<string, number>());
-
-  useEffect(() => {
-    fetchWatchlist()
-      .then((data) => {
-        setWatchlistedIds(new Set(data.items.map((m) => m.id)));
-      })
-      .catch(() => {
-        // silently fail on initial load
-      });
-  }, []);
+  const { state: watchlistedIds, refetch, mutate } = useDomainCollection<
+    WatchlistMovie,
+    string,
+    Set<string>
+  >({
+    fetch: async () => {
+      const data = await fetchWatchlist();
+      return data.items.map((m) => ({ id: m.id }));
+    },
+    toState: (items) => new Set(items.map((i) => i.id)),
+    initialState: useMemo(() => new Set<string>(), []),
+  });
 
   const isInWatchlist = useCallback(
     (movieId: string) => watchlistedIds.has(movieId),
-    [watchlistedIds]
+    [watchlistedIds],
   );
 
-  const addToWatchlist = useCallback(async (movieId: string) => {
-    const counter = (requestCounters.current.get(movieId) ?? 0) + 1;
-    requestCounters.current.set(movieId, counter);
-
-    // optimistic update
-    setWatchlistedIds((prev) => new Set([...prev, movieId]));
-
-    try {
-      const result = await apiAdd(movieId);
-      // ignore stale response
-      if (requestCounters.current.get(movieId) !== counter) return result;
-      return result;
-    } catch (error) {
-      // revert on error
-      if (requestCounters.current.get(movieId) === counter) {
-        setWatchlistedIds((prev) => {
-          const next = new Set(prev);
+  const addToWatchlist = useCallback(
+    (movieId: string) =>
+      mutate<AddToWatchlistResponse>(movieId, {
+        optimistic: (s) => new Set([...s, movieId]),
+        rollback: (s) => {
+          const next = new Set(s);
           next.delete(movieId);
           return next;
-        });
-      }
-      throw error;
-    }
-  }, []);
+        },
+        perform: () => apiAdd(movieId),
+      }),
+    [mutate],
+  );
 
-  const removeFromWatchlist = useCallback(async (movieId: string) => {
-    const counter = (requestCounters.current.get(movieId) ?? 0) + 1;
-    requestCounters.current.set(movieId, counter);
-
-    // optimistic update
-    setWatchlistedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(movieId);
-      return next;
-    });
-
-    try {
-      const result = await apiRemove(movieId);
-      if (requestCounters.current.get(movieId) !== counter) return result;
-      return result;
-    } catch (error) {
-      // revert on error
-      if (requestCounters.current.get(movieId) === counter) {
-        setWatchlistedIds((prev) => new Set([...prev, movieId]));
-      }
-      throw error;
-    }
-  }, []);
-
-  const refetch = useCallback(async () => {
-    try {
-      const data = await fetchWatchlist();
-      setWatchlistedIds(new Set(data.items.map((m) => m.id)));
-    } catch {
-      // silently fail on refetch
-    }
-  }, []);
+  const removeFromWatchlist = useCallback(
+    (movieId: string) =>
+      mutate<RemoveFromWatchlistResponse>(movieId, {
+        optimistic: (s) => {
+          const next = new Set(s);
+          next.delete(movieId);
+          return next;
+        },
+        rollback: (s) => new Set([...s, movieId]),
+        perform: () => apiRemove(movieId),
+      }),
+    [mutate],
+  );
 
   const toggleWatchlist = useCallback(
     async (movieId: string) => {
@@ -111,7 +87,7 @@ export function WatchlistProvider({ children }: { children: React.ReactNode }) {
         await addToWatchlist(movieId);
       }
     },
-    [watchlistedIds, addToWatchlist, removeFromWatchlist]
+    [watchlistedIds, addToWatchlist, removeFromWatchlist],
   );
 
   return (

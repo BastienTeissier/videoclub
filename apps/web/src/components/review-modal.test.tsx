@@ -10,8 +10,11 @@ vi.mock("@/lib/api/reviews", () => ({
 
 const mockUpsert = vi.fn();
 const mockDelete = vi.fn();
-vi.mock("@/contexts/review-context", () => ({
-  useReviews: () => ({
+vi.mock("@/hooks/use-movie-state", () => ({
+  useMovieState: () => ({
+    inWatchlist: false,
+    reviewRating: undefined,
+    toggleWatchlist: vi.fn(),
     upsertReview: mockUpsert,
     deleteReview: mockDelete,
   }),

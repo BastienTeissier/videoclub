@@ -5,8 +5,11 @@ import { ReviewForm } from "./review-form";
 
 const mockUpsert = vi.fn();
 const mockDelete = vi.fn();
-vi.mock("@/contexts/review-context", () => ({
-  useReviews: () => ({
+vi.mock("@/hooks/use-movie-state", () => ({
+  useMovieState: () => ({
+    inWatchlist: false,
+    reviewRating: undefined,
+    toggleWatchlist: vi.fn(),
     upsertReview: mockUpsert,
     deleteReview: mockDelete,
   }),
@@ -82,7 +85,7 @@ describe("ReviewForm", () => {
     fireEvent.click(screen.getByLabelText("Rate 4 stars"));
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
     await waitFor(() => {
-      expect(mockUpsert).toHaveBeenCalledWith(movie.id, {
+      expect(mockUpsert).toHaveBeenCalledWith({
         rating: 4,
         text: undefined,
       });
@@ -104,7 +107,7 @@ describe("ReviewForm", () => {
     expect(deleteBtn).toBeInTheDocument();
     fireEvent.click(deleteBtn);
     await waitFor(() => {
-      expect(mockDelete).toHaveBeenCalledWith(movie.id);
+      expect(mockDelete).toHaveBeenCalled();
     });
     await waitFor(() => expect(onDone).toHaveBeenCalled());
   });
@@ -126,7 +129,7 @@ describe("ReviewForm", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
     await waitFor(() => {
-      expect(mockUpsert).toHaveBeenCalledWith(movie.id, {
+      expect(mockUpsert).toHaveBeenCalledWith({
         rating: 4,
         text: "great",
       });

@@ -11,8 +11,11 @@ vi.mock("@/contexts/chat-results-context", () => ({
 }));
 
 const mockUpsertReview = vi.fn();
-vi.mock("@/contexts/review-context", () => ({
-  useReviews: () => ({
+vi.mock("@/hooks/use-movie-state", () => ({
+  useMovieState: () => ({
+    inWatchlist: false,
+    reviewRating: undefined,
+    toggleWatchlist: vi.fn(),
     upsertReview: mockUpsertReview,
     deleteReview: vi.fn(),
   }),
@@ -78,7 +81,7 @@ describe("ReviewForm renderer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
 
     await waitFor(() => {
-      expect(mockUpsertReview).toHaveBeenCalledWith(movie.id, {
+      expect(mockUpsertReview).toHaveBeenCalledWith({
         rating: 4,
         text: "good",
       });

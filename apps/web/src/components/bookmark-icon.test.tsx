@@ -3,12 +3,15 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { BookmarkIcon } from "./bookmark-icon";
 
 const mockToggleWatchlist = vi.fn();
-const mockIsInWatchlist = vi.fn();
+let inWatchlist = false;
 
-vi.mock("@/contexts/watchlist-context", () => ({
-  useWatchlist: () => ({
-    isInWatchlist: mockIsInWatchlist,
-    toggleWatchlist: mockToggleWatchlist,
+vi.mock("@/hooks/use-movie-state", () => ({
+  useMovieState: (movieId: string) => ({
+    inWatchlist,
+    reviewRating: undefined,
+    toggleWatchlist: () => mockToggleWatchlist(movieId),
+    upsertReview: vi.fn(),
+    deleteReview: vi.fn(),
   }),
 }));
 
@@ -24,7 +27,7 @@ beforeEach(() => {
 
 describe("BookmarkIcon", () => {
   it("renders outlined icon when movie is not in watchlist", () => {
-    mockIsInWatchlist.mockReturnValue(false);
+    inWatchlist = false;
 
     render(<BookmarkIcon movieId="m1" movieTitle="Arrival" />);
 
@@ -33,7 +36,7 @@ describe("BookmarkIcon", () => {
   });
 
   it("renders filled icon when movie is in watchlist", () => {
-    mockIsInWatchlist.mockReturnValue(true);
+    inWatchlist = true;
 
     render(<BookmarkIcon movieId="m1" movieTitle="Arrival" />);
 
@@ -42,7 +45,7 @@ describe("BookmarkIcon", () => {
   });
 
   it("click calls toggleWatchlist with movieId", async () => {
-    mockIsInWatchlist.mockReturnValue(false);
+    inWatchlist = false;
 
     render(<BookmarkIcon movieId="m1" movieTitle="Arrival" />);
 
@@ -51,7 +54,7 @@ describe("BookmarkIcon", () => {
   });
 
   it("click calls stopPropagation", () => {
-    mockIsInWatchlist.mockReturnValue(false);
+    inWatchlist = false;
 
     const parentClick = vi.fn();
     render(
@@ -65,7 +68,7 @@ describe("BookmarkIcon", () => {
   });
 
   it("shows success toast on successful toggle", async () => {
-    mockIsInWatchlist.mockReturnValue(false);
+    inWatchlist = false;
     mockToggleWatchlist.mockResolvedValue(undefined);
 
     render(<BookmarkIcon movieId="m1" movieTitle="Arrival" />);
@@ -81,7 +84,7 @@ describe("BookmarkIcon", () => {
   });
 
   it("shows error toast on failed toggle", async () => {
-    mockIsInWatchlist.mockReturnValue(false);
+    inWatchlist = false;
     mockToggleWatchlist.mockRejectedValue(new Error("Network error"));
 
     render(<BookmarkIcon movieId="m1" movieTitle="Arrival" />);

@@ -4,9 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
-  useRef,
-  useState,
+  useMemo,
 } from "react";
 import type {
   UpsertReviewRequest,
@@ -18,13 +16,19 @@ import {
   deleteReview as apiDelete,
   fetchReviewRatings,
 } from "@/lib/api/reviews";
+import { useDomainCollection } from "@/hooks/use-domain-collection";
+
+interface ReviewRatingItem {
+  movieId: string;
+  rating: number;
+}
 
 interface ReviewContextValue {
   reviewRatings: Map<string, number>;
   getReviewRating: (movieId: string) => number | undefined;
   upsertReview: (
     movieId: string,
-    body: UpsertReviewRequest
+    body: UpsertReviewRequest,
   ) => Promise<UpsertReviewResponse>;
   deleteReview: (movieId: string) => Promise<DeleteReviewResponse>;
   refetch: () => Promise<void>;
@@ -33,97 +37,61 @@ interface ReviewContextValue {
 const ReviewContext = createContext<ReviewContextValue | null>(null);
 
 export function ReviewProvider({ children }: { children: React.ReactNode }) {
-  const [reviewRatings, setReviewRatings] = useState<Map<string, number>>(
-    new Map()
-  );
-  const requestCounters = useRef(new Map<string, number>());
-
-  useEffect(() => {
-    fetchReviewRatings()
-      .then((data) => {
-        setReviewRatings(new Map(data.items.map((r) => [r.movieId, r.rating])));
-      })
-      .catch(() => {
-        // silently fail on initial load
-      });
-  }, []);
+  const { state: reviewRatings, refetch, mutate } = useDomainCollection<
+    ReviewRatingItem,
+    string,
+    Map<string, number>
+  >({
+    fetch: async () => {
+      const data = await fetchReviewRatings();
+      return data.items;
+    },
+    toState: (items) => new Map(items.map((r) => [r.movieId, r.rating])),
+    initialState: useMemo(() => new Map<string, number>(), []),
+  });
 
   const getReviewRating = useCallback(
     (movieId: string) => reviewRatings.get(movieId),
-    [reviewRatings]
+    [reviewRatings],
   );
 
   const upsertReview = useCallback(
-    async (movieId: string, body: UpsertReviewRequest) => {
-      const counter = (requestCounters.current.get(movieId) ?? 0) + 1;
-      requestCounters.current.set(movieId, counter);
-
+    (movieId: string, body: UpsertReviewRequest) => {
       const previous = reviewRatings.get(movieId);
-
-      setReviewRatings((prev) => {
-        const next = new Map(prev);
-        next.set(movieId, body.rating);
-        return next;
+      return mutate<UpsertReviewResponse>(movieId, {
+        optimistic: (s) => new Map(s).set(movieId, body.rating),
+        rollback: (s) => {
+          const next = new Map(s);
+          if (previous === undefined) next.delete(movieId);
+          else next.set(movieId, previous);
+          return next;
+        },
+        perform: () => apiUpsert(movieId, body),
       });
-
-      try {
-        const result = await apiUpsert(movieId, body);
-        return result;
-      } catch (error) {
-        if (requestCounters.current.get(movieId) === counter) {
-          setReviewRatings((prev) => {
-            const next = new Map(prev);
-            if (previous === undefined) next.delete(movieId);
-            else next.set(movieId, previous);
-            return next;
-          });
-        }
-        throw error;
-      }
     },
-    [reviewRatings]
+    [mutate, reviewRatings],
   );
 
   const deleteReview = useCallback(
-    async (movieId: string) => {
-      const counter = (requestCounters.current.get(movieId) ?? 0) + 1;
-      requestCounters.current.set(movieId, counter);
-
+    (movieId: string) => {
       const previous = reviewRatings.get(movieId);
-
-      setReviewRatings((prev) => {
-        const next = new Map(prev);
-        next.delete(movieId);
-        return next;
+      return mutate<DeleteReviewResponse>(movieId, {
+        optimistic: (s) => {
+          const next = new Map(s);
+          next.delete(movieId);
+          return next;
+        },
+        rollback: (s) => {
+          if (previous === undefined) return s;
+          const next = new Map(s);
+          next.set(movieId, previous);
+          return next;
+        },
+        perform: () => apiDelete(movieId),
       });
-
-      try {
-        const result = await apiDelete(movieId);
-        return result;
-      } catch (error) {
-        if (requestCounters.current.get(movieId) === counter) {
-          if (previous !== undefined) {
-            setReviewRatings((prev) => {
-              const next = new Map(prev);
-              next.set(movieId, previous);
-              return next;
-            });
-          }
-        }
-        throw error;
-      }
     },
-    [reviewRatings]
+    [mutate, reviewRatings],
   );
-
-  const refetch = useCallback(async () => {
-    try {
-      const data = await fetchReviewRatings();
-      setReviewRatings(new Map(data.items.map((r) => [r.movieId, r.rating])));
-    } catch {
-      // silently fail on refetch
-    }
-  }, []);
 
   return (
     <ReviewContext.Provider

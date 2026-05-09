@@ -9,7 +9,7 @@ import {
   Textarea,
   toast,
 } from "@repo/ui";
-import { useReviews } from "@/contexts/review-context";
+import { useMovieState } from "@/hooks/use-movie-state";
 
 interface ReviewFormProps {
   movie: MovieDto;
@@ -26,7 +26,7 @@ export function ReviewForm({
   initialText,
   onDone,
 }: ReviewFormProps) {
-  const { upsertReview, deleteReview } = useReviews();
+  const { upsertReview, deleteReview } = useMovieState(movie.id);
   const [rating, setRating] = useState<number | undefined>(
     initialReview?.rating ?? initialRating
   );
@@ -53,7 +53,7 @@ export function ReviewForm({
 
     setSubmitting(true);
     try {
-      await upsertReview(movie.id, {
+      await upsertReview({
         rating,
         text: text || undefined,
       });
@@ -71,7 +71,7 @@ export function ReviewForm({
   async function handleDelete() {
     setSubmitting(true);
     try {
-      await deleteReview(movie.id);
+      await deleteReview();
       onDone();
     } catch {
       toast({

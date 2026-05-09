@@ -3,12 +3,17 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import type { MovieDto } from "@repo/contracts";
 import { ReviewIcon } from "./review-icon";
 
-const mockGetReviewRating = vi.fn();
-vi.mock("@/contexts/review-context", () => ({
-  useReviews: () => ({
-    getReviewRating: mockGetReviewRating,
-    upsertReview: vi.fn(),
-    deleteReview: vi.fn(),
+let currentRating: number | undefined;
+const mockUpsertReview = vi.fn();
+const mockDeleteReview = vi.fn();
+
+vi.mock("@/hooks/use-movie-state", () => ({
+  useMovieState: () => ({
+    inWatchlist: false,
+    reviewRating: currentRating,
+    toggleWatchlist: vi.fn(),
+    upsertReview: mockUpsertReview,
+    deleteReview: mockDeleteReview,
   }),
 }));
 
@@ -41,7 +46,7 @@ beforeEach(() => {
 
 describe("ReviewIcon", () => {
   it("rating undefined → no number label, aria-label 'Add review'", () => {
-    mockGetReviewRating.mockReturnValue(undefined);
+    currentRating = undefined;
     render(<ReviewIcon movie={movie} />);
     const button = screen.getByRole("button", { name: "Add review" });
     expect(button).toBeInTheDocument();
@@ -49,14 +54,14 @@ describe("ReviewIcon", () => {
   });
 
   it("rating 4.5 → button shows numeric label", () => {
-    mockGetReviewRating.mockReturnValue(4.5);
+    currentRating = 4.5;
     render(<ReviewIcon movie={movie} />);
     const button = screen.getByRole("button", { name: /Edit review/ });
     expect(button.textContent).toContain("4.5");
   });
 
   it("click stops propagation (parent onClick not called)", () => {
-    mockGetReviewRating.mockReturnValue(undefined);
+    currentRating = undefined;
     const parentClick = vi.fn();
     render(
       <div onClick={parentClick}>
@@ -68,7 +73,7 @@ describe("ReviewIcon", () => {
   });
 
   it("click opens modal", () => {
-    mockGetReviewRating.mockReturnValue(undefined);
+    currentRating = undefined;
     render(<ReviewIcon movie={movie} />);
     const button = screen.getByRole("button", { name: "Add review" });
     fireEvent.click(button);
@@ -76,14 +81,14 @@ describe("ReviewIcon", () => {
   });
 
   it("rating defined → button has no opacity-0 class", () => {
-    mockGetReviewRating.mockReturnValue(4);
+    currentRating = 4;
     render(<ReviewIcon movie={movie} />);
     const button = screen.getByRole("button", { name: /Edit review/ });
     expect(button.className).not.toContain("opacity-0");
   });
 
   it("rating undefined and alwaysVisible unset → button has opacity-0 group-hover:opacity-100", () => {
-    mockGetReviewRating.mockReturnValue(undefined);
+    currentRating = undefined;
     render(<ReviewIcon movie={movie} />);
     const button = screen.getByRole("button", { name: "Add review" });
     expect(button.className).toContain("opacity-0");
@@ -91,7 +96,7 @@ describe("ReviewIcon", () => {
   });
 
   it("rating undefined and alwaysVisible=true → button has no opacity-0 class", () => {
-    mockGetReviewRating.mockReturnValue(undefined);
+    currentRating = undefined;
     render(<ReviewIcon movie={movie} alwaysVisible />);
     const button = screen.getByRole("button", { name: "Add review" });
     expect(button.className).not.toContain("opacity-0");

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Star } from "lucide-react";
 import type { MovieDto } from "@repo/contracts";
-import { useReviews } from "@/contexts/review-context";
+import { useMovieState } from "@/hooks/use-movie-state";
 import { ReviewModal } from "./review-modal";
 
 interface ReviewIconProps {
@@ -12,8 +12,7 @@ interface ReviewIconProps {
 }
 
 export function ReviewIcon({ movie, alwaysVisible = false }: ReviewIconProps) {
-  const { getReviewRating } = useReviews();
-  const rating = getReviewRating(movie.id);
+  const { reviewRating: rating } = useMovieState(movie.id);
   const [modalOpen, setModalOpen] = useState(false);
 
   function handleClick(e: React.MouseEvent) {
