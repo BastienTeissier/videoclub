@@ -30,6 +30,30 @@ type JsonPatchOp =
   | { op: "add"; path: string; value: unknown }
   | { op: "remove"; path: string };
 
+function applyNotesPatch(
+  prevNotes: string[] | undefined,
+  newNotes: string[],
+  ops: JsonPatchOp[],
+): string[] {
+  const existing = prevNotes ?? [];
+  const appended = [...existing, ...newNotes];
+  const evicted = Math.max(0, appended.length - NOTES_MAX);
+  const trimmed = evicted > 0 ? appended.slice(evicted) : appended;
+
+  if (existing.length === 0) {
+    ops.push({ op: "add", path: "/notes", value: trimmed });
+    return trimmed;
+  }
+
+  for (let i = 0; i < evicted; i++) {
+    ops.push({ op: "remove", path: "/notes/0" });
+  }
+  for (const note of newNotes) {
+    ops.push({ op: "add", path: "/notes/-", value: note });
+  }
+  return trimmed;
+}
+
 export function applyPatch(
   prev: ViewingPreferences,
   patch: ViewingPreferencesPatch,
@@ -49,23 +73,7 @@ export function applyPatch(
   }
 
   if (patch.notes !== undefined) {
-    const existing = prev.notes ?? [];
-    const appended = [...existing, ...patch.notes];
-    const evicted = appended.length - NOTES_MAX;
-    const trimmed =
-      evicted > 0 ? appended.slice(evicted) : appended;
-    next.notes = trimmed;
-
-    if (existing.length === 0) {
-      ops.push({ op: "add", path: "/notes", value: trimmed });
-    } else {
-      for (let i = 0; i < evicted; i++) {
-        ops.push({ op: "remove", path: "/notes/0" });
-      }
-      for (const note of patch.notes) {
-        ops.push({ op: "add", path: "/notes/-", value: note });
-      }
-    }
+    next.notes = applyNotesPatch(prev.notes, patch.notes, ops);
   }
 
   return { next, jsonPatchOps: ops };
