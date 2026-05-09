@@ -86,43 +86,52 @@ export function agentRun(db: Database) {
   const chatMessages = chatMessagesRepository(db);
   const runs = agentRunsRepository(db);
 
+  type FinishStep = {
+    toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }>;
+    toolResults: Array<{ toolCallId: string; output: unknown }>;
+  };
+
+  async function recordStepToolCalls(
+    step: FinishStep,
+    runDbId: string,
+  ): Promise<boolean> {
+    let endedWithPause = false;
+    for (const tc of step.toolCalls) {
+      const toolCallRecord = await runs.createToolCall({
+        runId: runDbId,
+        toolName: tc.toolName,
+        input: tc.input,
+        aiSdkCallId: tc.toolCallId,
+      });
+      const toolResult = step.toolResults.find(
+        (tr) => tr.toolCallId === tc.toolCallId,
+      );
+      if (!toolResult) {
+        // Tool call without result == pending approval (HITL needsApproval)
+        endedWithPause = true;
+        continue;
+      }
+      await runs.completeToolCall(toolCallRecord.id, {
+        output: toolResult.output,
+        durationMs: 0,
+      });
+      if (isNeedsClarification(toolResult.output)) {
+        endedWithPause = true;
+      }
+    }
+    return endedWithPause;
+  }
+
   function buildOnFinish(
     runDbId: string,
     sessionId: string,
-  ): (event: {
-    text: string;
-    steps: Array<{
-      toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }>;
-      toolResults: Array<{ toolCallId: string; output: unknown }>;
-    }>;
-  }) => Promise<void> {
+  ): (event: { text: string; steps: FinishStep[] }) => Promise<void> {
     return async (event) => {
       try {
         let endedWithPause = false;
-
         for (const step of event.steps) {
-          for (const tc of step.toolCalls) {
-            const toolCallRecord = await runs.createToolCall({
-              runId: runDbId,
-              toolName: tc.toolName,
-              input: tc.input,
-              aiSdkCallId: tc.toolCallId,
-            });
-            const toolResult = step.toolResults.find(
-              (tr) => tr.toolCallId === tc.toolCallId,
-            );
-            if (toolResult) {
-              await runs.completeToolCall(toolCallRecord.id, {
-                output: toolResult.output,
-                durationMs: 0,
-              });
-              if (isNeedsClarification(toolResult.output)) {
-                endedWithPause = true;
-              }
-            } else {
-              // Tool call without result == pending approval (HITL needsApproval)
-              endedWithPause = true;
-            }
+          if (await recordStepToolCalls(step, runDbId)) {
+            endedWithPause = true;
           }
         }
 
