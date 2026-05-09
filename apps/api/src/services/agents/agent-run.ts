@@ -19,8 +19,51 @@ import { createWatchlistRemoveTool } from "../../features/tools/watchlist-remove
 import { createReviewPrefillTool } from "../../features/tools/review-prefill.js";
 import { createReviewShowTool } from "../../features/tools/review-show.js";
 import { createReviewDeleteTool } from "../../features/tools/review-delete.js";
-import { streamAgUiEvents } from "./ag-ui-stream.js";
+import { streamAgUiEvents, stripUiNoise } from "./ag-ui-stream.js";
 import { SYSTEM_PROMPT } from "./system-prompt.js";
+
+interface ReplayedToolCall {
+  aiSdkCallId: string | null;
+  toolName: string;
+  input: unknown;
+  output: unknown;
+  runMessageId: string | null;
+}
+
+function toolCallAssistantMessage(tc: ReplayedToolCall): ModelMessage {
+  return {
+    role: "assistant",
+    content: [
+      {
+        type: "tool-call",
+        toolCallId: tc.aiSdkCallId ?? `replay-${tc.toolName}`,
+        toolName: tc.toolName,
+        input: tc.input,
+      },
+    ],
+  };
+}
+
+function toolResultMessage(tc: ReplayedToolCall): ModelMessage {
+  return {
+    role: "tool",
+    content: [
+      {
+        type: "tool-result",
+        toolCallId: tc.aiSdkCallId ?? `replay-${tc.toolName}`,
+        toolName: tc.toolName,
+        // Tool outputs are user-defined JSON; coerce via a serialize round-trip
+        // so `value` matches the SDK's JSONValue contract without a blind cast.
+        // Strip wire-format noise (a2uiMessages, warnings) so the LLM only
+        // sees the structured `data` payload from prior runs.
+        output: {
+          type: "json",
+          value: JSON.parse(JSON.stringify(stripUiNoise(tc.output) ?? null)),
+        },
+      },
+    ],
+  };
+}
 
 interface StartInput {
   userId: string;
@@ -201,10 +244,35 @@ export function agentRun(db: Database) {
     }
 
     const previousMessages = await chatMessages.findBySessionId(session.id);
-    const history: ModelMessage[] = previousMessages.slice(0, -1).map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content ?? "",
-    }));
+    const priorToolCalls = await runs.findCompletedToolCallsBySessionId(
+      session.id,
+    );
+
+    // Bucket completed tool calls by the user message id that started their run,
+    // so we can interleave assistant tool-call + tool tool-result pairs right
+    // after the matching user message (preserves AI SDK ordering invariants).
+    const toolCallsByMessageId = new Map<string, ReplayedToolCall[]>();
+    for (const tc of priorToolCalls) {
+      if (!tc.runMessageId) continue;
+      const bucket = toolCallsByMessageId.get(tc.runMessageId) ?? [];
+      bucket.push(tc);
+      toolCallsByMessageId.set(tc.runMessageId, bucket);
+    }
+
+    const persisted = previousMessages.slice(0, -1); // drop just-created user msg
+    const history: ModelMessage[] = [];
+    for (const m of persisted) {
+      history.push({
+        role: m.role as "user" | "assistant",
+        content: m.content ?? "",
+      });
+      if (m.role === "user") {
+        for (const tc of toolCallsByMessageId.get(m.id) ?? []) {
+          history.push(toolCallAssistantMessage(tc));
+          history.push(toolResultMessage(tc));
+        }
+      }
+    }
     const messages = [...history, ...input.messages];
 
     const run = await runs.createRun({

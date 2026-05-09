@@ -36,7 +36,7 @@ function extractWarnings(output: unknown): unknown[] {
   return Array.isArray(maybe) ? maybe : [];
 }
 
-function stripUiNoise(output: unknown): unknown {
+export function stripUiNoise(output: unknown): unknown {
   if (!output || typeof output !== "object") return output;
   const obj = output as Record<string, unknown>;
   if (!("a2uiMessages" in obj) && !("warnings" in obj)) return output;

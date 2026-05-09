@@ -1,4 +1,4 @@
-import { eq, and, isNull, desc } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, asc, desc } from "drizzle-orm";
 import { agentRuns } from "../schema/agent-runs.js";
 import { toolCalls } from "../schema/tool-calls.js";
 import type { Database } from "../client/index.js";
@@ -85,6 +85,29 @@ export function agentRunsRepository(db: Database) {
         .orderBy(desc(toolCalls.createdAt))
         .limit(1);
       return rows[0] ?? null;
+    },
+
+    async findCompletedToolCallsBySessionId(sessionId: string) {
+      return db
+        .select({
+          id: toolCalls.id,
+          aiSdkCallId: toolCalls.aiSdkCallId,
+          toolName: toolCalls.toolName,
+          input: toolCalls.input,
+          output: toolCalls.output,
+          runId: toolCalls.runId,
+          runMessageId: agentRuns.messageId,
+          createdAt: toolCalls.createdAt,
+        })
+        .from(toolCalls)
+        .innerJoin(agentRuns, eq(toolCalls.runId, agentRuns.id))
+        .where(
+          and(
+            eq(agentRuns.sessionId, sessionId),
+            isNotNull(toolCalls.output),
+          ),
+        )
+        .orderBy(asc(toolCalls.createdAt));
     },
 
     async findToolCallByAiSdkCallId(aiSdkCallId: string) {

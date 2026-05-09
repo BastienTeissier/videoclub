@@ -39,6 +39,13 @@ vi.mock("./ag-ui-stream.js", () => ({
   streamAgUiEvents: vi.fn(async function* () {
     yield "data: {}\n\n";
   }),
+  stripUiNoise: (output: unknown) => {
+    if (!output || typeof output !== "object") return output;
+    const obj = output as Record<string, unknown>;
+    if (!("a2uiMessages" in obj) && !("warnings" in obj)) return output;
+    const { a2uiMessages: _a, warnings: _w, ...rest } = obj;
+    return rest;
+  },
 }));
 
 const mockMessageCreate = vi.fn();
@@ -51,6 +58,7 @@ const mockCompleteToolCall = vi.fn();
 const mockCompleteRun = vi.fn();
 const mockFailRun = vi.fn();
 const mockFindToolCallByAiSdkCallId = vi.fn();
+const mockFindCompletedToolCallsBySessionId = vi.fn();
 
 vi.mock("@repo/db", () => ({
   chatMessagesRepository: vi.fn(() => ({
@@ -68,6 +76,7 @@ vi.mock("@repo/db", () => ({
     completeRun: mockCompleteRun,
     failRun: mockFailRun,
     findToolCallByAiSdkCallId: mockFindToolCallByAiSdkCallId,
+    findCompletedToolCallsBySessionId: mockFindCompletedToolCallsBySessionId,
   })),
 }));
 
@@ -116,6 +125,7 @@ beforeEach(() => {
   ]);
   mockCreateRun.mockResolvedValue({ id: "run-1" });
   mockCreateToolCall.mockResolvedValue({ id: "tc-1" });
+  mockFindCompletedToolCallsBySessionId.mockResolvedValue([]);
   setupStreamTextMock();
 });
 
@@ -287,6 +297,61 @@ describe("agentRun.start", () => {
     expect(mockMessageCreate).toHaveBeenCalledWith(
       expect.objectContaining({ role: "assistant", content: "Hello!" }),
     );
+  });
+
+  it("replays prior completed tool calls as assistant tool-call + tool tool-result pairs after the originating user message", async () => {
+    mockSessionFindById.mockResolvedValue({ id: "session-existing" });
+    mockFindBySessionId.mockResolvedValue([
+      { id: "prev-1", role: "user", content: "feel-good comedy", createdAt: new Date("2024-01-01") },
+      { id: "prev-2", role: "assistant", content: "", createdAt: new Date("2024-01-02") },
+      { id: "prev-3", role: "user", content: "compare the top 3", createdAt: new Date("2024-01-03") },
+    ]);
+    mockFindCompletedToolCallsBySessionId.mockResolvedValue([
+      {
+        aiSdkCallId: "call_grid",
+        toolName: "discovery",
+        input: { view: "grid" },
+        output: {
+          data: { movies: [{ id: "m1" }, { id: "m2" }, { id: "m3" }], view: "grid" },
+          a2uiMessages: [{ createSurface: { surfaceId: "discovery", catalogId: "videoclub" } }],
+          warnings: [],
+        },
+        runMessageId: "prev-1",
+      },
+    ]);
+
+    await drain(
+      agentRun(fakeDb).start({
+        userId: "user-1",
+        threadId: "session-existing",
+        runId: "ag-run-1",
+        messages: [{ role: "user", content: "compare the top 3" }],
+      }),
+    );
+
+    const call = mockStreamText.mock.calls[0]![0] as Record<string, unknown>;
+    const msgs = call.messages as ModelMessage[];
+
+    // Order: user(prev-1) → assistant tool-call → tool tool-result → assistant(prev-2 text "") → user(input)
+    expect(msgs[0]).toEqual({ role: "user", content: "feel-good comedy" });
+    const toolCallMsg = msgs[1] as { role: string; content: Array<Record<string, unknown>> };
+    expect(toolCallMsg.role).toBe("assistant");
+    expect(toolCallMsg.content[0]).toMatchObject({
+      type: "tool-call",
+      toolCallId: "call_grid",
+      toolName: "discovery",
+      input: { view: "grid" },
+    });
+    const toolResultMsg = msgs[2] as { role: string; content: Array<Record<string, unknown>> };
+    expect(toolResultMsg.role).toBe("tool");
+    const resultContent = toolResultMsg.content[0] as { output: { value: { data: unknown; a2uiMessages?: unknown; warnings?: unknown } } };
+    expect(resultContent.output.value).toEqual({
+      data: { movies: [{ id: "m1" }, { id: "m2" }, { id: "m3" }], view: "grid" },
+    });
+    // a2uiMessages + warnings stripped from the prompt
+    expect((resultContent.output.value as Record<string, unknown>).a2uiMessages).toBeUndefined();
+    expect((resultContent.output.value as Record<string, unknown>).warnings).toBeUndefined();
+    expect(msgs[3]).toEqual({ role: "assistant", content: "" });
   });
 
   it("loads previous session messages and prepends them to the model history", async () => {

@@ -357,6 +357,82 @@ describe("MovieSearch", () => {
     expect(mockRefetchReviews).not.toHaveBeenCalled();
   });
 
+  it("renders the latest assistant text reply when no surface is active", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      messages: [
+        { id: "u1", role: "user", content: "compare the top 3" },
+        {
+          id: "a1",
+          role: "assistant",
+          content: "I need a prior search before I can compare.",
+        },
+      ],
+    };
+    render(<MovieSearch />);
+    expect(
+      screen.getByText("I need a prior search before I can compare."),
+    ).toBeInTheDocument();
+  });
+
+  it("does not render the assistant text fallback when a surface is active", () => {
+    applyMessage({
+      createSurface: { surfaceId: "discovery", catalogId: "videoclub" },
+    });
+    applyMessage({
+      updateComponents: {
+        surfaceId: "discovery",
+        components: [
+          { id: "root", component: "Column", children: ["grid"] },
+          { id: "grid", component: "MovieGrid", data: { path: "/movies" } },
+        ],
+      },
+    });
+    applyMessage({
+      updateDataModel: { surfaceId: "discovery", path: "/movies", value: [] },
+    });
+    hookReturn = {
+      ...defaultHookReturn,
+      messages: [
+        { id: "u1", role: "user", content: "find me a movie" },
+        { id: "a1", role: "assistant", content: "Here are some picks:" },
+      ],
+    };
+    render(<MovieSearch />);
+    expect(screen.queryByText("Here are some picks:")).not.toBeInTheDocument();
+  });
+
+  it("does not render the assistant text fallback when an interrupt is pending", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      messages: [
+        { id: "a1", role: "assistant", content: "Stale narration." },
+      ],
+      pendingInterrupt: {
+        id: "tc-1",
+        reason: "approval",
+        message: "Approve calling search_tmdb?",
+        proposed: { toolName: "search_tmdb", input: { query: "x" } },
+        responseSchema: { type: "object" },
+      },
+    };
+    render(<MovieSearch />);
+    expect(screen.queryByText("Stale narration.")).not.toBeInTheDocument();
+  });
+
+  it("ignores blank assistant messages", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      messages: [
+        { id: "u1", role: "user", content: "hi" },
+        { id: "a1", role: "assistant", content: "   " },
+      ],
+    };
+    const { container } = render(<MovieSearch />);
+    // Blank assistant message means no fallback paragraph
+    expect(container.querySelector("p.whitespace-pre-wrap")).toBeNull();
+  });
+
   it("watchlist_add error envelope does not refetch", () => {
     hookReturn = {
       ...defaultHookReturn,
