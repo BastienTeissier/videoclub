@@ -237,7 +237,15 @@ export function agentRun(db: Database) {
     );
 
     const resumedToolCallId = `resume-${input.interruptId}`;
-    const result = await tool.execute(mergedInput as never, {
+    // Dynamic dispatch over a heterogeneous ToolSet: the tool's input type
+    // varies per name and cannot be statically reconciled with mergedInput.
+    // The original input was already validated by the AI SDK; mergeResumeInput
+    // only adds resolution-side fields (pickedMovieId, editedReason).
+    const execute = tool.execute as (
+      input: unknown,
+      opts: { toolCallId: string; messages: ModelMessage[] },
+    ) => Promise<unknown>;
+    const result = await execute(mergedInput, {
       toolCallId: resumedToolCallId,
       messages: [],
     });
@@ -267,7 +275,9 @@ export function agentRun(db: Database) {
           type: "tool-result",
           toolCallId: resumedToolCallId,
           toolName: pending.toolName,
-          output: { type: "json", value: result as never },
+          // Tool outputs are user-defined JSON; coerce via a serialize round-trip
+          // so `value` matches the SDK's JSONValue contract without a blind cast.
+          output: { type: "json", value: JSON.parse(JSON.stringify(result ?? null)) },
         },
       ],
     };

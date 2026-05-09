@@ -178,24 +178,11 @@ export async function* streamAgUiEvents(
         case "tool-approval-request": {
           // AI SDK emits a `tool-call` event before `tool-approval-request`
           // for the same tool, so TOOL_CALL_START/ARGS/END are already sent.
-          // Build an approval interrupt to attach to RUN_FINISHED.
-          const tc = (part as unknown as {
-            toolCall?: {
-              toolCallId?: string;
-              toolName?: string;
-              args?: unknown;
-              input?: unknown;
-            };
-          }).toolCall;
-          if (tc?.toolCallId && tc.toolName) {
-            pendingInterrupts.push(
-              approvalInterrupt(
-                tc.toolCallId,
-                tc.toolName,
-                tc.input ?? tc.args ?? {},
-              ),
-            );
-          }
+          // `part.toolCall` is typed as TypedToolCall<TOOLS> — no cast needed.
+          const { toolCallId, toolName, input } = part.toolCall;
+          pendingInterrupts.push(
+            approvalInterrupt(toolCallId, toolName, input),
+          );
           break;
         }
 
