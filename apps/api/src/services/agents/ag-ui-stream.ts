@@ -35,7 +35,6 @@ function stripA2UIMessages(output: unknown): unknown {
     return output;
   }
   const { a2uiMessages: _ignored, ...rest } = output as Record<string, unknown>;
-  void _ignored;
   return rest;
 }
 
