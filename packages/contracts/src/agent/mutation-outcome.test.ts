@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   mutationOutcomeSchema,
   wireMutationOutcomeSchema,
-} from "./mutation-outcome.js";
+} from "./mutation-outcome";
 
 const validMovie = {
   id: "11111111-1111-4111-8111-111111111111",

@@ -1,15 +1,15 @@
 export {
   watchlistGridSurfaceSchema,
   type WatchlistGridSurface,
-} from "./watchlist-grid.js";
+} from "./watchlist-grid";
 export {
   reviewFormSurfaceSchema,
   type ReviewFormSurface,
-} from "./review-form.js";
+} from "./review-form";
 export {
   reviewsGridSurfaceSchema,
   type ReviewsGridSurface,
-} from "./reviews-grid.js";
+} from "./reviews-grid";
 export {
   componentNodeSchema,
   a2uiCreateSurfaceSchema,
@@ -27,10 +27,10 @@ export {
   type A2UIUpdateDataModelMessage,
   type A2UIDeleteSurfaceMessage,
   type A2UIMessage,
-} from "./protocol.js";
+} from "./protocol";
 export {
   VIDEOCLUB_CATALOG_ID,
   videoclubCatalog,
   getCatalogPromptDescription,
   type CatalogComponent,
-} from "./catalog.js";
+} from "./catalog";

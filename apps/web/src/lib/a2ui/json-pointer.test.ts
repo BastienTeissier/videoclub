@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { get, set } from "./json-pointer.js";
+import { get, set } from "./json-pointer";
 
 describe("json-pointer get", () => {
   it("returns nested value", () => {

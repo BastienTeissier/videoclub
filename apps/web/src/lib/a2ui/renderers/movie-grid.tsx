@@ -1,10 +1,10 @@
 "use client";
 
 import type { MovieDto } from "@repo/contracts";
-import { useA2UISurface } from "../store.js";
-import { get } from "../json-pointer.js";
+import { useA2UISurface } from "../store";
+import { get } from "../json-pointer";
 import { MovieCard } from "@/components/movie-card";
-import type { RendererProps } from "../renderer-types.js";
+import type { RendererProps } from "../renderer-types";
 
 export function MovieGrid({ node, surfaceId }: RendererProps) {
   const surface = useA2UISurface(surfaceId);

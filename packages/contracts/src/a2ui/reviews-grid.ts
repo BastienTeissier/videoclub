@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { reviewWithMovieSchema } from "../domain/review.js";
+import { reviewWithMovieSchema } from "../domain/review";
 
 export const reviewsGridSurfaceSchema = z.object({
   type: z.literal("reviews-grid"),

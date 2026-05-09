@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { reviewSchema, reviewWithMovieSchema } from "../domain/review.js";
+import { reviewSchema, reviewWithMovieSchema } from "../domain/review";
 
 export const upsertReviewRequestSchema = z.object({
   rating: z.number().min(0.5).max(5).multipleOf(0.5),

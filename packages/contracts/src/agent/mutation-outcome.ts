@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { movieSchema } from "../domain/movie.js";
+import { movieSchema } from "../domain/movie";
 
 export const domainKeySchema = z.enum(["watchlist", "reviews"]);
 export type DomainKey = z.infer<typeof domainKeySchema>;

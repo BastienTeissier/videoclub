@@ -4,7 +4,7 @@ import {
   commitMovieNightInterrupt,
   interruptRunFinishedResultSchema,
   interruptSchema,
-} from "./interrupts.js";
+} from "./interrupts";
 
 const movieA = {
   id: "11111111-1111-4111-8111-111111111111",

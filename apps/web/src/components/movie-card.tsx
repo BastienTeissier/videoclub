@@ -1,6 +1,6 @@
 import type { MovieDto } from "@repo/contracts";
-import { BookmarkIcon } from "./bookmark-icon.js";
-import { ReviewIcon } from "./review-icon.js";
+import { BookmarkIcon } from "./bookmark-icon";
+import { ReviewIcon } from "./review-icon";
 
 interface MovieCardProps {
   movie: MovieDto;

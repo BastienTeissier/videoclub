@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { movieSchema } from "../domain/movie.js";
+import { movieSchema } from "../domain/movie";
 
 export const addToWatchlistResponseSchema = z.object({
   added: z.boolean(),

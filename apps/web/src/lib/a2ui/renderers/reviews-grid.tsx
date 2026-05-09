@@ -3,9 +3,9 @@
 import type { ReviewWithMovieDto } from "@repo/contracts";
 import { StarRating } from "@repo/ui";
 import { MovieCard } from "@/components/movie-card";
-import { useA2UISurface } from "../store.js";
-import { get } from "../json-pointer.js";
-import type { RendererProps } from "../renderer-types.js";
+import { useA2UISurface } from "../store";
+import { get } from "../json-pointer";
+import type { RendererProps } from "../renderer-types";
 
 interface GridState {
   items: ReviewWithMovieDto[];

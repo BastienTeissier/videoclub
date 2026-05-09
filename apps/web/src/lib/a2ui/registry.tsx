@@ -1,7 +1,7 @@
 "use client";
 
-import { useA2UISurface } from "./store.js";
-import { renderComponent } from "./catalog.js";
+import { useA2UISurface } from "./store";
+import { renderComponent } from "./catalog";
 
 interface A2UIRendererProps {
   surfaceId: string;

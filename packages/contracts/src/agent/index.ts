@@ -7,7 +7,7 @@ export {
   type MutationErrorCode,
   type MutationOutcome,
   type WireMutationOutcome,
-} from "./mutation-outcome.js";
+} from "./mutation-outcome";
 
 export {
   viewingPreferencesSchema,
@@ -16,7 +16,7 @@ export {
   type ViewingPreferences,
   type ViewingPreferencesPatch,
   type PatchApplication,
-} from "./viewing-preferences.js";
+} from "./viewing-preferences";
 
 export {
   jsonSchemaSchema,
@@ -35,4 +35,4 @@ export {
   type CommitMovieNightResponse,
   type ClarificationProposed,
   type ClarificationResponse,
-} from "./interrupts.js";
+} from "./interrupts";
