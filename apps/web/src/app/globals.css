@@ -25,3 +25,16 @@ body {
   font-size: 14px;
   line-height: 1.5;
 }
+
+@keyframes a2ui-flash {
+  0% {
+    background-color: var(--color-accent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.a2ui-flash {
+  animation: a2ui-flash 1.4s ease-out;
+}
