@@ -310,6 +310,68 @@ describe("streamAgUiEvents", () => {
     }
   });
 
+  it("emits CUSTOM:warning per warning entry and strips warnings from TOOL_CALL_RESULT", async () => {
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: {},
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-result",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: {},
+        output: {
+          data: { view: "grid" },
+          warnings: [
+            { code: "invalid-view", requested: "carousel" },
+            { code: "comparison-too-few", count: 1 },
+          ],
+        },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), options);
+    const events = await collectEvents(stream);
+    const customEvents = events.filter(
+      (e) => parseEventType(e) === "CUSTOM" && e.includes('"name":"warning"'),
+    );
+    expect(customEvents).toHaveLength(2);
+    expect(customEvents[0]).toContain("invalid-view");
+    expect(customEvents[1]).toContain("comparison-too-few");
+
+    const resultEvent = events.find((e) => parseEventType(e) === "TOOL_CALL_RESULT")!;
+    expect(resultEvent).not.toContain("warnings");
+    expect(resultEvent).toContain("\\\"data\\\"");
+  });
+
+  it("does not emit CUSTOM:warning when warnings field is absent or empty", async () => {
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: {},
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-result",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: {},
+        output: { data: { view: "grid" } },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), options);
+    const events = await collectEvents(stream);
+    const warningEvents = events.filter(
+      (e) => parseEventType(e) === "CUSTOM" && e.includes('"name":"warning"'),
+    );
+    expect(warningEvents).toHaveLength(0);
+  });
+
   it("does not emit CUSTOM when output has no a2uiMessages", async () => {
     const parts: TextStreamPart<ToolSet>[] = [
       {
