@@ -8,7 +8,6 @@ import {
   type MovieDto,
 } from "@repo/contracts";
 import { useAgentChat } from "@/hooks/use-agent-chat";
-import { useChatResults } from "@/contexts/chat-results-context";
 import { useDomainRefetchers } from "@/lib/domain-refetchers";
 import { A2UIRenderer } from "@/lib/a2ui/registry";
 import { useA2UISurface } from "@/lib/a2ui/store";
@@ -26,60 +25,23 @@ export function MovieSearch() {
   } = useAgentChat();
 
   const refetchers = useDomainRefetchers();
-  const {
-    a2uiSurface: persistedA2UISurface,
-    clarification,
-    setA2UISurface,
-    setClarification,
-  } = useChatResults();
 
   const discoverySurface = useA2UISurface("discovery");
   const watchlistSurface = useA2UISurface("watchlist");
   const reviewsSurface = useA2UISurface("reviews");
+  const reviewFormSurface = useA2UISurface("review-form");
 
   const prevToolResultsRef = useRef<typeof toolResults | null>(null);
 
-  // Project transient toolResults into context for tagged-union surfaces and
-  // refetch dispatch. After Amendment B, mutating tools no longer surface
-  // `needs-clarification` here — that's an interrupt now (handled below via
-  // `pendingInterrupt`). review_add still uses the legacy tagged-union shape
-  // until Amendment E.
+  // Mutation tools (review_delete, watchlist_add, watchlist_remove) return
+  // `MutationOutcome` envelopes. On `kind: "success"`, refetch the affected
+  // domains via the registry. Errors surface in the LLM's reply.
+  // Clarification doesn't reach this hook — it's an interrupt now.
   useEffect(() => {
     if (toolResults.length === 0) return;
     if (toolResults === prevToolResultsRef.current) return;
     prevToolResultsRef.current = toolResults;
 
-    // review_add still emits a tagged-union review-form surface (Amendment E pending)
-    const reviewFormResult = toolResults.find(
-      (tr) =>
-        tr.toolName === "review_add" &&
-        tr.result &&
-        typeof tr.result === "object" &&
-        "type" in tr.result &&
-        (tr.result as { type: string }).type === "review-form",
-    );
-    if (reviewFormResult) {
-      setA2UISurface(
-        reviewFormResult.result as { type: string; [key: string]: unknown },
-      );
-      return;
-    }
-
-    // review_add still uses legacy clarification_needed shape (Amendment E pending)
-    for (const tr of toolResults) {
-      if (
-        tr.toolName === "review_add" &&
-        tr.result &&
-        typeof tr.result === "object" &&
-        "clarification_needed" in tr.result
-      ) {
-        const result = tr.result as unknown as { candidates: MovieDto[] };
-        setClarification({ action: "review", candidates: result.candidates });
-        return;
-      }
-    }
-
-    // MutationOutcome envelope (success/error). Refetch on success.
     for (const tr of toolResults) {
       if (
         tr.toolName !== "review_delete" &&
@@ -95,29 +57,13 @@ export function MovieSearch() {
         }
       }
     }
-  }, [toolResults, setA2UISurface, setClarification, refetchers]);
+  }, [toolResults, refetchers]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
     sendMessage(query.trim());
     setQuery("");
-  }
-
-  // Legacy clarification handler for review_add (drops when Amendment E lands).
-  function handleLegacyClarificationPick(movie: MovieDto) {
-    const action = clarification!.action;
-    const titleAndYear = `${movie.title}${movie.year ? ` (${movie.year})` : ""}`;
-    let msg: string;
-    if (action === "review") {
-      msg = `review [movieId:${movie.id}] ${titleAndYear}`;
-    } else if (action === "review-delete") {
-      msg = `delete my review of [movieId:${movie.id}] ${titleAndYear}`;
-    } else {
-      msg = `${action} [movieId:${movie.id}] ${titleAndYear} ${action === "add" ? "to" : "from"} my watchlist`;
-    }
-    setClarification(null);
-    sendMessage(msg);
   }
 
   function handleInterruptClarificationPick(movie: MovieDto) {
@@ -130,7 +76,6 @@ export function MovieSearch() {
     void respondToInterrupt(pendingInterrupt.id, { approved: true });
   }
 
-  // Decode the clarification interrupt's `proposed` field into MovieDto[].
   const interruptCandidates: MovieDto[] | null = (() => {
     if (!pendingInterrupt || pendingInterrupt.reason !== "clarification") {
       return null;
@@ -149,7 +94,10 @@ export function MovieSearch() {
       "search_tmdb";
 
   const hasProtocolSurface =
-    !!discoverySurface || !!watchlistSurface || !!reviewsSurface;
+    !!discoverySurface ||
+    !!watchlistSurface ||
+    !!reviewsSurface ||
+    !!reviewFormSurface;
 
   return (
     <div className="w-full max-w-2xl mx-auto">
@@ -176,13 +124,9 @@ export function MovieSearch() {
       </div>
 
       <div className="mt-6">
-        {isLoading &&
-          !hasProtocolSurface &&
-          !persistedA2UISurface &&
-          !clarification &&
-          !pendingInterrupt && (
-            <p className="text-sm text-muted">Thinking...</p>
-          )}
+        {isLoading && !hasProtocolSurface && !pendingInterrupt && (
+          <p className="text-sm text-muted">Thinking...</p>
+        )}
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
@@ -223,31 +167,10 @@ export function MovieSearch() {
           </div>
         )}
 
-        {clarification && (
-          <div className="mb-4">
-            <p className="text-sm text-muted mb-2">Which movie did you mean?</p>
-            <div className="flex flex-wrap gap-2">
-              {clarification.candidates.map((movie) => (
-                <Button
-                  key={movie.id}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleLegacyClarificationPick(movie)}
-                  disabled={isLoading}
-                >
-                  {movie.title}
-                  {movie.year ? ` (${movie.year})` : ""}
-                </Button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {persistedA2UISurface && <A2UIRenderer surface={persistedA2UISurface} />}
-
         {discoverySurface && <A2UIRenderer surfaceId="discovery" />}
         {watchlistSurface && <A2UIRenderer surfaceId="watchlist" />}
         {reviewsSurface && <A2UIRenderer surfaceId="reviews" />}
+        {reviewFormSurface && <A2UIRenderer surfaceId="review-form" />}
       </div>
     </div>
   );

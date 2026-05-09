@@ -16,7 +16,7 @@ import { createSearchTmdbTool } from "../../features/tools/search-tmdb.js";
 import { createWatchlistShowTool } from "../../features/tools/watchlist-show.js";
 import { createWatchlistAddTool } from "../../features/tools/watchlist-add.js";
 import { createWatchlistRemoveTool } from "../../features/tools/watchlist-remove.js";
-import { createReviewAddTool } from "../../features/tools/review-add.js";
+import { createReviewPrefillTool } from "../../features/tools/review-prefill.js";
 import { createReviewShowTool } from "../../features/tools/review-show.js";
 import { createReviewDeleteTool } from "../../features/tools/review-delete.js";
 import { streamAgUiEvents } from "./ag-ui-stream.js";
@@ -44,7 +44,7 @@ function buildToolset(db: Database, userId: string): ToolSet {
     watchlist_show: createWatchlistShowTool(db, userId),
     watchlist_add: createWatchlistAddTool(db, userId),
     watchlist_remove: createWatchlistRemoveTool(db, userId),
-    review_add: createReviewAddTool(db, userId),
+    review_prefill: createReviewPrefillTool(db, userId),
     review_show: createReviewShowTool(db, userId),
     review_delete: createReviewDeleteTool(db, userId),
   };

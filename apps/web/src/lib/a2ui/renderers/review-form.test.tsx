@@ -1,14 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import type { ReviewFormSurface } from "@repo/contracts";
-import { ReviewForm } from "./review-form";
-
-const mockSetA2UISurface = vi.fn();
-vi.mock("@/contexts/chat-results-context", () => ({
-  useChatResults: () => ({
-    setA2UISurface: mockSetA2UISurface,
-  }),
-}));
+import { A2UIRenderer } from "../registry";
+import { applyMessage, clearAllSurfaces, getSurface } from "../store";
 
 const mockUpsertReview = vi.fn();
 vi.mock("@/hooks/use-movie-state", () => ({
@@ -45,21 +38,39 @@ const movie = {
   updatedAt: "2024-01-01T00:00:00.000Z",
 };
 
+function applyReviewFormMessages(rating: number, text?: string) {
+  applyMessage({
+    createSurface: { surfaceId: "review-form", catalogId: "videoclub" },
+  });
+  applyMessage({
+    updateComponents: {
+      surfaceId: "review-form",
+      components: [
+        { id: "root", component: "Column", children: ["form"] },
+        { id: "form", component: "ReviewForm", data: { path: "/state" } },
+      ],
+    },
+  });
+  applyMessage({
+    updateDataModel: {
+      surfaceId: "review-form",
+      path: "/state",
+      value: { movie, rating, text },
+    },
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  clearAllSurfaces();
   mockUpsertReview.mockResolvedValue({ message: "ok" });
 });
 
-describe("ReviewForm renderer", () => {
-  it("renders ReviewForm with prefilled rating and text from surface", () => {
-    const data: ReviewFormSurface = {
-      type: "review-form",
-      movie,
-      rating: 4.5,
-      text: "loved",
-    };
+describe("ReviewForm renderer (A2UI-bound)", () => {
+  it("renders ReviewForm with prefilled rating and text from surface state", () => {
+    applyReviewFormMessages(4.5, "loved");
 
-    render(<ReviewForm data={data} />);
+    render(<A2UIRenderer surfaceId="review-form" />);
 
     expect(screen.getByText("Inception")).toBeInTheDocument();
     expect(screen.getByDisplayValue("loved")).toBeInTheDocument();
@@ -68,15 +79,10 @@ describe("ReviewForm renderer", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("onDone clears A2UI surface", async () => {
-    const data: ReviewFormSurface = {
-      type: "review-form",
-      movie,
-      rating: 4,
-      text: "good",
-    };
+  it("submit calls upsertReview and clears the surface on done", async () => {
+    applyReviewFormMessages(4, "good");
 
-    render(<ReviewForm data={data} />);
+    render(<A2UIRenderer surfaceId="review-form" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
 
@@ -87,7 +93,7 @@ describe("ReviewForm renderer", () => {
       });
     });
     await waitFor(() => {
-      expect(mockSetA2UISurface).toHaveBeenCalledWith(null);
+      expect(getSurface("review-form")).toBeUndefined();
     });
   });
 });

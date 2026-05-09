@@ -25,8 +25,8 @@ vi.mock("../../features/tools/watchlist-add.js", () => ({
 vi.mock("../../features/tools/watchlist-remove.js", () => ({
   createWatchlistRemoveTool: vi.fn(() => ({ type: "watchlist_remove_tool" })),
 }));
-vi.mock("../../features/tools/review-add.js", () => ({
-  createReviewAddTool: vi.fn(() => ({ type: "review_add_tool" })),
+vi.mock("../../features/tools/review-prefill.js", () => ({
+  createReviewPrefillTool: vi.fn(() => ({ type: "review_prefill_tool" })),
 }));
 vi.mock("../../features/tools/review-show.js", () => ({
   createReviewShowTool: vi.fn(() => ({ type: "review_show_tool" })),
@@ -137,7 +137,7 @@ describe("agentRun.start", () => {
           watchlist_show: expect.anything(),
           watchlist_add: expect.anything(),
           watchlist_remove: expect.anything(),
-          review_add: expect.anything(),
+          review_prefill: expect.anything(),
           review_show: expect.anything(),
           review_delete: expect.anything(),
         }),

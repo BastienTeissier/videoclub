@@ -5,7 +5,7 @@ vi.mock("@repo/db", () => ({
 }));
 
 import { moviesRepository } from "@repo/db";
-import { createReviewAddTool } from "./review-add.js";
+import { createReviewPrefillTool } from "./review-prefill.js";
 
 const mockFindById = vi.fn();
 const mockSearchStructured = vi.fn();
@@ -42,8 +42,8 @@ const fakeMovie = (id: number) => ({
 });
 
 function makeTool() {
-  return createReviewAddTool(
-    {} as Parameters<typeof createReviewAddTool>[0],
+  return createReviewPrefillTool(
+    {} as Parameters<typeof createReviewPrefillTool>[0],
     "user-1",
   );
 }
@@ -54,8 +54,8 @@ const toolContext = {
   abortSignal: undefined as unknown as AbortSignal,
 };
 
-describe("createReviewAddTool", () => {
-  it("movieId provided — returns review-form surface, skips search", async () => {
+describe("createReviewPrefillTool", () => {
+  it("movieId provided — emits review-form surface (data + a2uiMessages), skips search", async () => {
     const movie = fakeMovie(1);
     mockFindById.mockResolvedValue(movie);
 
@@ -67,15 +67,19 @@ describe("createReviewAddTool", () => {
 
     expect(mockFindById).toHaveBeenCalledWith("uuid-1");
     expect(mockSearchStructured).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      type: "review-form",
-      rating: 4.5,
-      text: "loved it",
-    });
-    expect((result as { movie: { id: string } }).movie.id).toBe("uuid-1");
+
+    const r = result as {
+      data: { movie: { id: string }; rating: number; text?: string };
+      a2uiMessages: unknown[];
+    };
+    expect(r.data.movie.id).toBe("uuid-1");
+    expect(r.data.rating).toBe(4.5);
+    expect(r.data.text).toBe("loved it");
+    expect(Array.isArray(r.a2uiMessages)).toBe(true);
+    expect(r.a2uiMessages.length).toBeGreaterThan(0);
   });
 
-  it("movieId provided but movie missing — returns not_found", async () => {
+  it("movieId provided but movie missing — returns kind:error code:not_found", async () => {
     mockFindById.mockResolvedValue(null);
 
     const tool = makeTool();
@@ -84,11 +88,11 @@ describe("createReviewAddTool", () => {
       toolContext,
     );
 
-    expect(result).toMatchObject({ error: "not_found" });
+    expect(result).toMatchObject({ kind: "error", code: "not_found" });
     expect((result as { message: string }).message).toContain("uuid-missing");
   });
 
-  it("title only, 1 match — returns review-form surface", async () => {
+  it("title only, 1 match — emits review-form surface", async () => {
     const movie = fakeMovie(1);
     mockSearchStructured.mockResolvedValue([movie]);
 
@@ -99,15 +103,17 @@ describe("createReviewAddTool", () => {
     );
 
     expect(mockSearchStructured).toHaveBeenCalledWith({ title: "Movie 1" });
-    expect(result).toMatchObject({
-      type: "review-form",
-      rating: 3.5,
-      text: "ok",
-    });
-    expect((result as { movie: { id: string } }).movie.id).toBe("uuid-1");
+    const r = result as {
+      data: { movie: { id: string }; rating: number; text?: string };
+      a2uiMessages: unknown[];
+    };
+    expect(r.data.movie.id).toBe("uuid-1");
+    expect(r.data.rating).toBe(3.5);
+    expect(r.data.text).toBe("ok");
+    expect(r.a2uiMessages.length).toBeGreaterThan(0);
   });
 
-  it("title only, 0 matches — returns not_found error", async () => {
+  it("title only, 0 matches — returns kind:error code:not_found", async () => {
     mockSearchStructured.mockResolvedValue([]);
 
     const tool = makeTool();
@@ -116,14 +122,14 @@ describe("createReviewAddTool", () => {
       toolContext,
     );
 
-    expect(result).toMatchObject({ error: "not_found" });
+    expect(result).toMatchObject({ kind: "error", code: "not_found" });
     expect((result as { message: string }).message).toContain("Unknown");
     expect((result as { message: string }).message).toContain(
       "Search for it first",
     );
   });
 
-  it("title only, multiple matches — returns clarification with action review", async () => {
+  it("title only, multiple matches — returns kind:needs-clarification with candidates", async () => {
     mockSearchStructured.mockResolvedValue([
       fakeMovie(1),
       fakeMovie(2),
@@ -136,14 +142,11 @@ describe("createReviewAddTool", () => {
       toolContext,
     );
 
-    expect(result).toMatchObject({
-      clarification_needed: true,
-      action: "review",
-    });
+    expect(result).toMatchObject({ kind: "needs-clarification" });
     expect((result as { candidates: unknown[] }).candidates).toHaveLength(3);
   });
 
-  it("searchStructured throws — returns service_error", async () => {
+  it("searchStructured throws — returns kind:error code:service_error", async () => {
     mockSearchStructured.mockRejectedValue(new Error("DB down"));
 
     const tool = makeTool();
@@ -152,10 +155,10 @@ describe("createReviewAddTool", () => {
       toolContext,
     );
 
-    expect(result).toMatchObject({ error: "service_error" });
+    expect(result).toMatchObject({ kind: "error", code: "service_error" });
   });
 
-  it("text omitted — surface has no text field", async () => {
+  it("text omitted — surface data has no text field", async () => {
     const movie = fakeMovie(1);
     mockSearchStructured.mockResolvedValue([movie]);
 
@@ -165,10 +168,10 @@ describe("createReviewAddTool", () => {
       toolContext,
     );
 
-    expect(result).toMatchObject({
-      type: "review-form",
-      rating: 3,
-    });
-    expect((result as { text?: string }).text).toBeUndefined();
+    const r = result as {
+      data: { movie: { id: string }; rating: number; text?: string };
+    };
+    expect(r.data.rating).toBe(3);
+    expect(r.data.text).toBeUndefined();
   });
 });

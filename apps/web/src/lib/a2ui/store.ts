@@ -89,6 +89,12 @@ export function clearAllSurfaces(): void {
   emit();
 }
 
+export function clearSurface(surfaceId: string): void {
+  if (!surfaces.has(surfaceId)) return;
+  surfaces.delete(surfaceId);
+  emit();
+}
+
 export function getSurface(surfaceId: string): SurfaceState | undefined {
   return surfaces.get(surfaceId);
 }

@@ -54,26 +54,6 @@ vi.mock("@/contexts/review-context", () => ({
   }),
 }));
 
-const mockSetMovies = vi.fn();
-const mockSetA2UISurface = vi.fn();
-const mockSetClarification = vi.fn();
-
-let chatResultsReturn = {
-  movies: [] as MovieDto[],
-  a2uiSurface: null as { type: string; [key: string]: unknown } | null,
-  clarification: null as {
-    action: "add" | "remove" | "review" | "review-delete";
-    candidates: MovieDto[];
-  } | null,
-  setMovies: mockSetMovies,
-  setA2UISurface: mockSetA2UISurface,
-  setClarification: mockSetClarification,
-};
-
-vi.mock("@/contexts/chat-results-context", () => ({
-  useChatResults: () => chatResultsReturn,
-}));
-
 vi.mock("@repo/ui", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@repo/ui")>();
   return { ...actual, toast: vi.fn() };
@@ -83,14 +63,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   clearAllSurfaces();
   hookReturn = { ...defaultHookReturn };
-  chatResultsReturn = {
-    movies: [],
-    a2uiSurface: null,
-    clarification: null,
-    setMovies: mockSetMovies,
-    setA2UISurface: mockSetA2UISurface,
-    setClarification: mockSetClarification,
-  };
 });
 
 const fakeMovie = (overrides: Partial<MovieDto> & { id: string; title: string }): MovieDto => ({
@@ -267,95 +239,6 @@ describe("MovieSearch", () => {
     ).toBeInTheDocument();
   });
 
-  it("clarification result renders candidate buttons", () => {
-    chatResultsReturn = {
-      ...chatResultsReturn,
-      clarification: {
-        action: "add",
-        candidates: [
-          fakeMovie({ id: "uuid-1", title: "Arrival", year: 2016 }),
-          fakeMovie({ id: "uuid-2", title: "Arrival 2", year: 2020 }),
-        ],
-      },
-    };
-
-    render(<MovieSearch />);
-    expect(screen.getByText("Which movie did you mean?")).toBeInTheDocument();
-    expect(screen.getByText("Arrival (2016)")).toBeInTheDocument();
-    expect(screen.getByText("Arrival 2 (2020)")).toBeInTheDocument();
-  });
-
-  it("review_add result with type review-form sets A2UI surface (tagged-union path)", () => {
-    hookReturn = {
-      ...defaultHookReturn,
-      toolResults: [
-        {
-          toolName: "review_add",
-          toolCallId: "tc-1",
-          result: {
-            type: "review-form",
-            movie: fakeMovie({ id: "uuid-r1", title: "Inception", year: 2010 }),
-            rating: 4.5,
-            text: "loved",
-          },
-        },
-      ],
-    };
-
-    render(<MovieSearch />);
-
-    expect(mockSetA2UISurface).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "review-form", rating: 4.5, text: "loved" }),
-    );
-  });
-
-  it("review_add clarification_needed sets clarification with action=review", () => {
-    const candidates = [
-      fakeMovie({ id: "uuid-r1", title: "Dune", year: 1984 }),
-      fakeMovie({ id: "uuid-r2", title: "Dune", year: 2021 }),
-    ];
-
-    hookReturn = {
-      ...defaultHookReturn,
-      toolResults: [
-        {
-          toolName: "review_add",
-          toolCallId: "tc-1",
-          result: {
-            clarification_needed: true,
-            action: "review",
-            candidates,
-          },
-        },
-      ],
-    };
-
-    render(<MovieSearch />);
-
-    expect(mockSetClarification).toHaveBeenCalledWith({
-      action: "review",
-      candidates,
-    });
-  });
-
-  it("clicking review-action clarification candidate sends review follow-up", () => {
-    chatResultsReturn = {
-      ...chatResultsReturn,
-      clarification: {
-        action: "review",
-        candidates: [fakeMovie({ id: "uuid-r1", title: "Dune", year: 2021 })],
-      },
-    };
-
-    render(<MovieSearch />);
-    fireEvent.click(screen.getByText("Dune (2021)"));
-
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      "review [movieId:uuid-r1] Dune (2021)",
-    );
-    expect(mockSetClarification).toHaveBeenCalledWith(null);
-  });
-
   it("clarification interrupt renders candidate buttons", () => {
     const candidates = [
       fakeMovie({
@@ -418,24 +301,6 @@ describe("MovieSearch", () => {
     expect(mockRespondToInterrupt).toHaveBeenCalledWith("call_clar", {
       pickedMovieId: "22222222-2222-4222-8222-222222222222",
     });
-  });
-
-  it("clicking review-delete clarification candidate sends delete follow-up", () => {
-    chatResultsReturn = {
-      ...chatResultsReturn,
-      clarification: {
-        action: "review-delete",
-        candidates: [fakeMovie({ id: "uuid-d2", title: "Dune", year: 2021 })],
-      },
-    };
-
-    render(<MovieSearch />);
-    fireEvent.click(screen.getByText("Dune (2021)"));
-
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      "delete my review of [movieId:uuid-d2] Dune (2021)",
-    );
-    expect(mockSetClarification).toHaveBeenCalledWith(null);
   });
 
   it("review_delete success envelope with affected=['reviews'] triggers useReviews refetch", () => {
@@ -514,21 +379,4 @@ describe("MovieSearch", () => {
     expect(mockRefetchReviews).not.toHaveBeenCalled();
   });
 
-  it("clicking add clarification candidate sends follow-up message with embedded movieId", () => {
-    chatResultsReturn = {
-      ...chatResultsReturn,
-      clarification: {
-        action: "add",
-        candidates: [fakeMovie({ id: "uuid-1", title: "Arrival", year: 2016 })],
-      },
-    };
-
-    render(<MovieSearch />);
-    fireEvent.click(screen.getByText("Arrival (2016)"));
-
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      "add [movieId:uuid-1] Arrival (2016) to my watchlist",
-    );
-    expect(mockSetClarification).toHaveBeenCalledWith(null);
-  });
 });

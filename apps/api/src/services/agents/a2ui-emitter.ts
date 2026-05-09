@@ -46,6 +46,13 @@ interface ReviewsGridArgs {
   error?: boolean;
 }
 
+interface ReviewFormSurfaceArgs {
+  surfaceId?: string;
+  movie: MovieDto;
+  rating: number;
+  text?: string;
+}
+
 const ROOT_ID = "root";
 
 function rootColumn(childIds: string[]): ComponentNode {
@@ -115,6 +122,22 @@ export function watchlistGridMessages({
       "/state",
       gridStateValue(items, message, error),
     ),
+  ];
+}
+
+export function reviewFormSurfaceMessages({
+  surfaceId = "review-form",
+  movie,
+  rating,
+  text,
+}: ReviewFormSurfaceArgs): A2UIMessage[] {
+  return [
+    createSurface(surfaceId, VIDEOCLUB_CATALOG_ID),
+    updateComponents(surfaceId, [
+      rootColumn(["form"]),
+      { id: "form", component: "ReviewForm", data: { path: "/state" } },
+    ]),
+    updateDataModel(surfaceId, "/state", { movie, rating, text }),
   ];
 }
 

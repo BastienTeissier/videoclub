@@ -1,23 +1,33 @@
 "use client";
 
-import type { ReviewFormSurface } from "@repo/contracts";
-import { useChatResults } from "@/contexts/chat-results-context";
+import type { MovieDto } from "@repo/contracts";
 import { ReviewForm as ReviewFormComponent } from "@/components/review-form";
+import { useA2UISurface, clearSurface } from "../store";
+import { get } from "../json-pointer";
+import type { RendererProps } from "../renderer-types";
 
-interface ReviewFormProps {
-  data: ReviewFormSurface;
+interface ReviewFormState {
+  movie: MovieDto;
+  rating: number;
+  text?: string;
 }
 
-export function ReviewForm({ data }: ReviewFormProps) {
-  const { setA2UISurface } = useChatResults();
+export function ReviewForm({ node, surfaceId }: RendererProps) {
+  const surface = useA2UISurface(surfaceId);
+  const path = node.data?.path;
+  const state = path
+    ? (get(surface?.dataModel, path) as ReviewFormState | undefined)
+    : undefined;
+
+  if (!state) return null;
 
   return (
     <ReviewFormComponent
-      movie={data.movie}
+      movie={state.movie}
       initialReview={null}
-      initialRating={data.rating}
-      initialText={data.text}
-      onDone={() => setA2UISurface(null)}
+      initialRating={state.rating}
+      initialText={state.text}
+      onDone={() => clearSurface(surfaceId)}
     />
   );
 }

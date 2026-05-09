@@ -44,17 +44,6 @@ vi.mock("@/contexts/review-context", () => ({
   }),
 }));
 
-vi.mock("@/contexts/chat-results-context", () => ({
-  useChatResults: () => ({
-    movies: [],
-    a2uiSurface: null,
-    clarification: null,
-    setMovies: vi.fn(),
-    setA2UISurface: vi.fn(),
-    setClarification: vi.fn(),
-  }),
-}));
-
 vi.mock("@repo/ui", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@repo/ui")>();
   return { ...actual, toast: vi.fn() };
@@ -130,26 +119,29 @@ describe("A2UIRenderer (protocol)", () => {
   });
 });
 
-describe("A2UIRenderer (tagged-union review-form)", () => {
-  it("renders the existing review form for type=review-form", () => {
-    render(
-      <A2UIRenderer
-        surface={{
-          type: "review-form",
-          movie: fakeMovie(1),
-          rating: 4,
-          text: "test",
-        }}
-      />,
-    );
-    // ReviewForm renders a heading or button — check for the movie title which appears in the form
-    expect(screen.getByText("Movie 1")).toBeInTheDocument();
-  });
+describe("A2UIRenderer (review-form via A2UI store)", () => {
+  it("renders the review form when bound to surface state", () => {
+    applyMessage({
+      createSurface: { surfaceId: "review-form", catalogId: "videoclub" },
+    });
+    applyMessage({
+      updateComponents: {
+        surfaceId: "review-form",
+        components: [
+          { id: "root", component: "Column", children: ["form"] },
+          { id: "form", component: "ReviewForm", data: { path: "/state" } },
+        ],
+      },
+    });
+    applyMessage({
+      updateDataModel: {
+        surfaceId: "review-form",
+        path: "/state",
+        value: { movie: fakeMovie(1), rating: 4, text: "test" },
+      },
+    });
 
-  it("returns nothing for unknown tagged-union type", () => {
-    const { container } = render(
-      <A2UIRenderer surface={{ type: "unknown-surface" }} />,
-    );
-    expect(container.innerHTML).toBe("");
+    render(<A2UIRenderer surfaceId="review-form" />);
+    expect(screen.getByText("Movie 1")).toBeInTheDocument();
   });
 });
