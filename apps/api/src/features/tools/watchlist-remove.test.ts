@@ -79,7 +79,7 @@ const toolContext = {
 };
 
 describe("createWatchlistRemoveTool", () => {
-  it("movieId provided — skips search, calls service.remove directly", async () => {
+  it("movieId provided, in watchlist — returns success with affected ['watchlist']", async () => {
     const movie = fakeMovie(1);
     mockIsInWatchlist.mockResolvedValue(true);
     mockFindById.mockResolvedValue(movie);
@@ -92,12 +92,22 @@ describe("createWatchlistRemoveTool", () => {
     expect(mockSearchByTitleInWatchlist).not.toHaveBeenCalled();
     expect(mockRemove).toHaveBeenCalledWith("user-1", "uuid-1");
     expect(result).toMatchObject({
-      removed: true,
-      movieId: "uuid-1",
+      kind: "success",
+      affected: ["watchlist"],
     });
   });
 
-  it("title only, 1 match — calls service.remove, returns removed result", async () => {
+  it("movieId provided, not in watchlist — returns error code not_found", async () => {
+    mockIsInWatchlist.mockResolvedValue(false);
+
+    const tool = makeTool();
+    const result = await tool.execute!({ title: "Movie 1", movieId: "uuid-1" }, toolContext);
+
+    expect(mockRemove).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ kind: "error", code: "not_found" });
+  });
+
+  it("title only, 1 match — returns success with affected ['watchlist']", async () => {
     const movie = fakeMovie(1);
     mockSearchByTitleInWatchlist.mockResolvedValue([movie]);
     mockRemove.mockResolvedValue({ removed: true, message: "Movie removed from watchlist" });
@@ -108,38 +118,33 @@ describe("createWatchlistRemoveTool", () => {
     expect(mockSearchByTitleInWatchlist).toHaveBeenCalledWith("user-1", "Movie 1");
     expect(mockRemove).toHaveBeenCalledWith("user-1", "uuid-1");
     expect(result).toMatchObject({
-      removed: true,
-      movieId: "uuid-1",
+      kind: "success",
+      affected: ["watchlist"],
     });
     expect((result as { movie: { id: string } }).movie.id).toBe("uuid-1");
   });
 
-  it("0 matches — returns not_in_watchlist error", async () => {
+  it("0 matches — returns error code not_found", async () => {
     mockSearchByTitleInWatchlist.mockResolvedValue([]);
 
     const tool = makeTool();
     const result = await tool.execute!({ title: "Unknown" }, toolContext);
 
-    expect(result).toMatchObject({
-      error: "not_in_watchlist",
-    });
+    expect(result).toMatchObject({ kind: "error", code: "not_found" });
     expect((result as { message: string }).message).toContain("Unknown");
   });
 
-  it("multiple matches — returns clarification_needed with remove action", async () => {
+  it("multiple matches — returns needs-clarification with candidates", async () => {
     mockSearchByTitleInWatchlist.mockResolvedValue([fakeMovie(1), fakeMovie(2)]);
 
     const tool = makeTool();
     const result = await tool.execute!({ title: "Movie" }, toolContext);
 
-    expect(result).toMatchObject({
-      clarification_needed: true,
-      action: "remove",
-    });
+    expect(result).toMatchObject({ kind: "needs-clarification" });
     expect((result as { candidates: unknown[] }).candidates).toHaveLength(2);
   });
 
-  it("service throws — returns error message", async () => {
+  it("service throws — returns error code service_error", async () => {
     const movie = fakeMovie(1);
     mockSearchByTitleInWatchlist.mockResolvedValue([movie]);
     mockRemove.mockRejectedValue(new Error("DB down"));
@@ -147,8 +152,6 @@ describe("createWatchlistRemoveTool", () => {
     const tool = makeTool();
     const result = await tool.execute!({ title: "Movie 1" }, toolContext);
 
-    expect(result).toMatchObject({
-      error: "service_error",
-    });
+    expect(result).toMatchObject({ kind: "error", code: "service_error" });
   });
 });

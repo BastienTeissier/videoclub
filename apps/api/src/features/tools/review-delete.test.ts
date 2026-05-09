@@ -91,7 +91,7 @@ const toolContext = {
 };
 
 describe("createReviewDeleteTool", () => {
-  it("movieId provided, review exists — calls service.delete and returns deleted result", async () => {
+  it("movieId provided, review exists — returns success with affected ['reviews']", async () => {
     const movie = fakeMovie(1);
     mockFindByUserAndMovie.mockResolvedValue(fakeReview("uuid-1"));
     mockFindById.mockResolvedValue(movie);
@@ -110,13 +110,16 @@ describe("createReviewDeleteTool", () => {
     expect(mockSearchReviewedMoviesByTitle).not.toHaveBeenCalled();
     expect(mockDelete).toHaveBeenCalledWith("user-1", "uuid-1");
     expect(result).toMatchObject({
-      deleted: true,
-      movieId: "uuid-1",
+      kind: "success",
+      affected: ["reviews"],
+      message: "Review deleted for Movie 1",
     });
-    expect((result as { movie: { id: string } }).movie.id).toBe("uuid-1");
+    expect(
+      (result as { movie: { id: string } }).movie.id,
+    ).toBe("uuid-1");
   });
 
-  it("movieId provided, review missing — returns no_review error, no service call", async () => {
+  it("movieId provided, review missing — returns error code no_review, no service call", async () => {
     mockFindByUserAndMovie.mockResolvedValue(null);
 
     const tool = makeTool();
@@ -126,10 +129,10 @@ describe("createReviewDeleteTool", () => {
     );
 
     expect(mockDelete).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ error: "no_review" });
+    expect(result).toMatchObject({ kind: "error", code: "no_review" });
   });
 
-  it("title only, 1 reviewed match — calls service.delete and returns deleted result", async () => {
+  it("title only, 1 reviewed match — returns success with affected ['reviews']", async () => {
     const movie = fakeMovie(1);
     mockSearchReviewedMoviesByTitle.mockResolvedValue([movie]);
     mockDelete.mockResolvedValue({
@@ -146,23 +149,23 @@ describe("createReviewDeleteTool", () => {
     );
     expect(mockDelete).toHaveBeenCalledWith("user-1", "uuid-1");
     expect(result).toMatchObject({
-      deleted: true,
-      movieId: "uuid-1",
+      kind: "success",
+      affected: ["reviews"],
     });
     expect((result as { movie: { id: string } }).movie.id).toBe("uuid-1");
   });
 
-  it("title only, 0 matches — returns no_review error mentioning title", async () => {
+  it("title only, 0 matches — returns error code no_review mentioning title", async () => {
     mockSearchReviewedMoviesByTitle.mockResolvedValue([]);
 
     const tool = makeTool();
     const result = await tool.execute!({ title: "Unknown" }, toolContext);
 
-    expect(result).toMatchObject({ error: "no_review" });
+    expect(result).toMatchObject({ kind: "error", code: "no_review" });
     expect((result as { message: string }).message).toContain("Unknown");
   });
 
-  it("title only, multiple matches — returns clarification_needed with review-delete action", async () => {
+  it("title only, multiple matches — returns needs-clarification with candidates", async () => {
     mockSearchReviewedMoviesByTitle.mockResolvedValue([
       fakeMovie(1),
       fakeMovie(2),
@@ -171,14 +174,11 @@ describe("createReviewDeleteTool", () => {
     const tool = makeTool();
     const result = await tool.execute!({ title: "Movie" }, toolContext);
 
-    expect(result).toMatchObject({
-      clarification_needed: true,
-      action: "review-delete",
-    });
+    expect(result).toMatchObject({ kind: "needs-clarification" });
     expect((result as { candidates: unknown[] }).candidates).toHaveLength(2);
   });
 
-  it("service throws — returns service_error", async () => {
+  it("service throws — returns error code service_error", async () => {
     const movie = fakeMovie(1);
     mockSearchReviewedMoviesByTitle.mockResolvedValue([movie]);
     mockDelete.mockRejectedValue(new Error("DB down"));
@@ -186,6 +186,6 @@ describe("createReviewDeleteTool", () => {
     const tool = makeTool();
     const result = await tool.execute!({ title: "Movie 1" }, toolContext);
 
-    expect(result).toMatchObject({ error: "service_error" });
+    expect(result).toMatchObject({ kind: "error", code: "service_error" });
   });
 });

@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { Database } from "@repo/db";
 import { reviewsRepository, moviesRepository } from "@repo/db";
+import type { MutationOutcome } from "@repo/contracts";
 import { reviewService } from "../../services/review.js";
 import { movieToDto } from "./movie-to-dto.js";
 
@@ -21,34 +22,36 @@ export function createReviewDeleteTool(db: Database, userId: string) {
         .optional()
         .describe("Optional movie ID to skip search and delete directly"),
     }),
-    execute: async ({ title, movieId }) => {
+    execute: async ({ title, movieId }): Promise<MutationOutcome> => {
       try {
         if (movieId) {
           const existing = await reviewsRepo.findByUserAndMovie(userId, movieId);
           if (!existing) {
             return {
-              error: "no_review",
+              kind: "error",
+              code: "no_review",
               message: "You don't have a review for that movie.",
             };
           }
           const movie = await moviesRepo.findById(movieId);
           const result = await service.delete(userId, movieId);
           return {
-            deleted: result.deleted,
+            kind: "success",
+            affected: ["reviews"],
             message: result.message,
-            movieId,
-            movie: movie ? movieToDto(movie) : null,
+            ...(movie ? { movie: movieToDto(movie) } : {}),
           };
         }
 
         const matches = await reviewsRepo.searchReviewedMoviesByTitle(
           userId,
-          title
+          title,
         );
 
         if (matches.length === 0) {
           return {
-            error: "no_review",
+            kind: "error",
+            code: "no_review",
             message: `You don't have a review for any movie matching '${title}'.`,
           };
         }
@@ -57,21 +60,21 @@ export function createReviewDeleteTool(db: Database, userId: string) {
           const movie = matches[0]!;
           const result = await service.delete(userId, movie.id);
           return {
-            deleted: result.deleted,
+            kind: "success",
+            affected: ["reviews"],
             message: result.message,
-            movieId: movie.id,
             movie: movieToDto(movie),
           };
         }
 
         return {
-          clarification_needed: true,
-          action: "review-delete" as const,
+          kind: "needs-clarification",
           candidates: matches.map(movieToDto),
         };
       } catch {
         return {
-          error: "service_error",
+          kind: "error",
+          code: "service_error",
           message:
             "Sorry, I couldn't delete the review right now. Please try again.",
         };

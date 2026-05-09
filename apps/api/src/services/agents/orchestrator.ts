@@ -41,13 +41,18 @@ When the user wants to remove a movie from their watchlist, use the watchlist_re
 When a user expresses an opinion or feeling about a movie (e.g., "I loved X", "X was mediocre", "X 4/5"), interpret the sentiment as a 0.5–5.0 star rating (half-star increments) and call the review_add tool with { title, rating, text? }. Do NOT save the review yourself — the tool returns a prefilled form for the user to confirm.
 When review_add returns a review-form surface, do not summarize the form contents in text — the UI will render it.
 When the user asks to see, show, list, browse, or check their reviews (e.g. "show my reviews", "list my reviews"), call the review_show tool. Do not summarize the resulting grid in text — the UI renders it.
-When the user asks to delete or remove a review (e.g. "delete my review of Inception", "remove my review for Dune"), call the review_delete tool with { title, movieId? }. If it returns clarification_needed with action "review-delete", present the candidates so the user can pick one. On success (deleted: true), confirm with the movie title and year. If it returns error: no_review, tell the user they haven't reviewed that movie yet.
-If a tool returns error: not_found, tell the user to search for the movie first using the search bar, then try again.
+When the user asks to delete or remove a review (e.g. "delete my review of Inception", "remove my review for Dune"), call the review_delete tool with { title, movieId? }.
+
+The mutation tools (review_delete, watchlist_add, watchlist_remove) return an outcome envelope of the form { kind: "success" | "error" | "needs-clarification", ... }:
+- On { kind: "success", affected, message, movie? }, confirm with the movie title and year using the message.
+- On { kind: "error", code: "no_review" }, tell the user they haven't reviewed that movie yet.
+- On { kind: "error", code: "not_found" }, tell the user the movie isn't available (for watchlist_add: suggest searching first).
+- On { kind: "error", code: "service_error" }, apologize and suggest trying again.
+- On { kind: "needs-clarification", candidates }, present the candidates and ask the user which they meant.
+
 Do not attempt to automatically search TMDB and then add in the same turn.
-If a tool returns clarification_needed, present the candidates and ask the user to pick one.
 When a user message contains a movie ID in brackets like [movieId:xxx], pass it as the movieId parameter to the tool to skip search.
-Always ask for clarification when a movie reference is ambiguous — never auto-resolve pronouns like "it".
-On successful add or remove, confirm with the movie title and year.`;
+Always ask for clarification when a movie reference is ambiguous — never auto-resolve pronouns like "it".`;
 
 interface OrchestratorParams {
   db: Database;

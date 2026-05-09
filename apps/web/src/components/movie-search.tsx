@@ -2,7 +2,11 @@
 
 import { useState, useEffect, useRef, type FormEvent } from "react";
 import { Input, Button } from "@repo/ui";
-import type { MovieDto } from "@repo/contracts";
+import {
+  wireMutationOutcomeSchema,
+  type DomainKey,
+  type MovieDto,
+} from "@repo/contracts";
 import { useAgentChat } from "@/hooks/use-agent-chat";
 import { useWatchlist } from "@/contexts/watchlist-context";
 import { useReviews } from "@/contexts/review-context";
@@ -41,12 +45,21 @@ export function MovieSearch() {
   // (review-form) and side effects (clarification, watchlist refetch, reviews refetch).
   // Discovery / watchlist_show / review_show now flow through the A2UI store via
   // CUSTOM events, not through this projection.
+  //
+  // Mutation tools (review_delete, watchlist_add, watchlist_remove) return a
+  // MutationOutcome envelope: { kind: "success" | "error" | "needs-clarification", ... }.
+  // review_add still uses the legacy tagged-union shape until Amendment E.
   useEffect(() => {
     if (toolResults.length === 0) return;
     if (toolResults === prevToolResultsRef.current) return;
     prevToolResultsRef.current = toolResults;
 
-    // review_add still emits a tagged-union review-form surface
+    const refetchersByDomain: Record<DomainKey, () => void> = {
+      watchlist: refetch,
+      reviews: refetchReviews,
+    };
+
+    // review_add still emits a tagged-union review-form surface (Amendment E pending)
     const reviewFormResult = toolResults.find(
       (tr) =>
         tr.toolName === "review_add" &&
@@ -62,49 +75,59 @@ export function MovieSearch() {
       return;
     }
 
-    // Clarification flows
+    // review_add still uses legacy clarification_needed shape (Amendment E pending)
     for (const tr of toolResults) {
       if (
-        (tr.toolName === "watchlist_add" ||
-          tr.toolName === "watchlist_remove" ||
-          tr.toolName === "review_add" ||
-          tr.toolName === "review_delete") &&
+        tr.toolName === "review_add" &&
         tr.result &&
         typeof tr.result === "object" &&
         "clarification_needed" in tr.result
       ) {
         const result = tr.result as unknown as {
-          action: "add" | "remove" | "review" | "review-delete";
           candidates: MovieDto[];
         };
-        setClarification({ action: result.action, candidates: result.candidates });
+        setClarification({ action: "review", candidates: result.candidates });
         return;
       }
     }
 
-    // Successful add/remove → trigger watchlist refetch
+    // MutationOutcome envelope from review_delete, watchlist_add, watchlist_remove
     for (const tr of toolResults) {
       if (
-        (tr.toolName === "watchlist_add" || tr.toolName === "watchlist_remove") &&
-        tr.result &&
-        typeof tr.result === "object" &&
-        ("added" in tr.result || "removed" in tr.result)
+        tr.toolName !== "review_delete" &&
+        tr.toolName !== "watchlist_add" &&
+        tr.toolName !== "watchlist_remove"
       ) {
-        refetch();
-        return;
+        continue;
       }
-    }
+      const parsed = wireMutationOutcomeSchema.safeParse(tr.result);
+      if (parsed.success) {
+        if (parsed.data.kind === "success") {
+          for (const domain of parsed.data.affected) {
+            refetchersByDomain[domain]?.();
+          }
+        }
+        // errors are surfaced by the LLM's text reply; no UI state change here
+        continue;
+      }
 
-    // Successful review_delete → refetch reviews
-    for (const tr of toolResults) {
+      // Server-only `needs-clarification` marker leaks through until the stream
+      // layer translates it into an interrupt (Amendment B). Project it into
+      // the existing clarification context as an interim.
+      const maybeClar = tr.result as
+        | { kind?: string; candidates?: MovieDto[] }
+        | null;
       if (
-        tr.toolName === "review_delete" &&
-        tr.result &&
-        typeof tr.result === "object" &&
-        "deleted" in tr.result &&
-        (tr.result as { deleted?: boolean }).deleted === true
+        maybeClar?.kind === "needs-clarification" &&
+        Array.isArray(maybeClar.candidates)
       ) {
-        refetchReviews();
+        const action: "add" | "remove" | "review-delete" =
+          tr.toolName === "watchlist_add"
+            ? "add"
+            : tr.toolName === "watchlist_remove"
+              ? "remove"
+              : "review-delete";
+        setClarification({ action, candidates: maybeClar.candidates });
         return;
       }
     }

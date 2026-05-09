@@ -68,7 +68,7 @@ const toolContext = {
 };
 
 describe("createWatchlistAddTool", () => {
-  it("movieId provided — skips search, calls service.add directly", async () => {
+  it("movieId provided — returns success with affected ['watchlist']", async () => {
     const movie = fakeMovie(1);
     mockFindById.mockResolvedValue(movie);
     mockAdd.mockResolvedValue({ added: true, message: "Movie 1 added to watchlist" });
@@ -80,13 +80,14 @@ describe("createWatchlistAddTool", () => {
     expect(mockSearchStructured).not.toHaveBeenCalled();
     expect(mockAdd).toHaveBeenCalledWith("user-1", "uuid-1");
     expect(result).toMatchObject({
-      added: true,
-      movieId: "uuid-1",
+      kind: "success",
+      affected: ["watchlist"],
+      message: "Movie 1 added to watchlist",
     });
     expect((result as { movie: { id: string } }).movie.id).toBe("uuid-1");
   });
 
-  it("title only, 1 match — calls service.add, returns added result", async () => {
+  it("title only, 1 match — returns success with affected ['watchlist']", async () => {
     const movie = fakeMovie(1);
     mockSearchStructured.mockResolvedValue([movie]);
     mockAdd.mockResolvedValue({ added: true, message: "Movie 1 added to watchlist" });
@@ -97,13 +98,13 @@ describe("createWatchlistAddTool", () => {
     expect(mockSearchStructured).toHaveBeenCalledWith({ title: "Movie 1" });
     expect(mockAdd).toHaveBeenCalledWith("user-1", "uuid-1");
     expect(result).toMatchObject({
-      added: true,
-      movieId: "uuid-1",
+      kind: "success",
+      affected: ["watchlist"],
     });
     expect((result as { movie: { id: string } }).movie.id).toBe("uuid-1");
   });
 
-  it("1 match, already in watchlist — returns added:false with info message", async () => {
+  it("1 match, already in watchlist — still returns success (idempotent) with the service message", async () => {
     const movie = fakeMovie(1);
     mockSearchStructured.mockResolvedValue([movie]);
     mockAdd.mockResolvedValue({ added: false, message: "Movie 1 is already in your watchlist" });
@@ -112,38 +113,34 @@ describe("createWatchlistAddTool", () => {
     const result = await tool.execute!({ title: "Movie 1" }, toolContext);
 
     expect(result).toMatchObject({
-      added: false,
+      kind: "success",
+      affected: ["watchlist"],
       message: "Movie 1 is already in your watchlist",
     });
   });
 
-  it("0 matches — returns not_found info result telling user to search first", async () => {
+  it("0 matches — returns error code not_found telling user to search first", async () => {
     mockSearchStructured.mockResolvedValue([]);
 
     const tool = makeTool();
     const result = await tool.execute!({ title: "Unknown" }, toolContext);
 
-    expect(result).toMatchObject({
-      error: "not_found",
-    });
+    expect(result).toMatchObject({ kind: "error", code: "not_found" });
     expect((result as { message: string }).message).toContain("Unknown");
     expect((result as { message: string }).message).toContain("Search for it first");
   });
 
-  it("multiple matches — returns clarification_needed with add action and candidates", async () => {
+  it("multiple matches — returns needs-clarification with candidates", async () => {
     mockSearchStructured.mockResolvedValue([fakeMovie(1), fakeMovie(2), fakeMovie(3)]);
 
     const tool = makeTool();
     const result = await tool.execute!({ title: "Movie" }, toolContext);
 
-    expect(result).toMatchObject({
-      clarification_needed: true,
-      action: "add",
-    });
+    expect(result).toMatchObject({ kind: "needs-clarification" });
     expect((result as { candidates: unknown[] }).candidates).toHaveLength(3);
   });
 
-  it("service throws — returns error message", async () => {
+  it("service throws — returns error code service_error", async () => {
     const movie = fakeMovie(1);
     mockSearchStructured.mockResolvedValue([movie]);
     mockAdd.mockRejectedValue(new Error("DB down"));
@@ -151,8 +148,6 @@ describe("createWatchlistAddTool", () => {
     const tool = makeTool();
     const result = await tool.execute!({ title: "Movie 1" }, toolContext);
 
-    expect(result).toMatchObject({
-      error: "service_error",
-    });
+    expect(result).toMatchObject({ kind: "error", code: "service_error" });
   });
 });

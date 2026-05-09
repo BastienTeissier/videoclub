@@ -342,7 +342,7 @@ describe("MovieSearch", () => {
     expect(mockSetClarification).toHaveBeenCalledWith(null);
   });
 
-  it("review_delete clarification_needed sets clarification with action=review-delete", () => {
+  it("review_delete needs-clarification envelope sets clarification with action=review-delete", () => {
     const candidates = [
       fakeMovie({ id: "uuid-d1", title: "Dune", year: 1984 }),
       fakeMovie({ id: "uuid-d2", title: "Dune", year: 2021 }),
@@ -355,8 +355,7 @@ describe("MovieSearch", () => {
           toolName: "review_delete",
           toolCallId: "tc-1",
           result: {
-            clarification_needed: true,
-            action: "review-delete",
+            kind: "needs-clarification",
             candidates,
           },
         },
@@ -367,6 +366,56 @@ describe("MovieSearch", () => {
 
     expect(mockSetClarification).toHaveBeenCalledWith({
       action: "review-delete",
+      candidates,
+    });
+  });
+
+  it("watchlist_add needs-clarification envelope sets clarification with action=add", () => {
+    const candidates = [
+      fakeMovie({ id: "uuid-a1", title: "Arrival", year: 2016 }),
+      fakeMovie({ id: "uuid-a2", title: "Arrival 2", year: 2020 }),
+    ];
+
+    hookReturn = {
+      ...defaultHookReturn,
+      toolResults: [
+        {
+          toolName: "watchlist_add",
+          toolCallId: "tc-1",
+          result: { kind: "needs-clarification", candidates },
+        },
+      ],
+    };
+
+    render(<MovieSearch />);
+
+    expect(mockSetClarification).toHaveBeenCalledWith({
+      action: "add",
+      candidates,
+    });
+  });
+
+  it("watchlist_remove needs-clarification envelope sets clarification with action=remove", () => {
+    const candidates = [
+      fakeMovie({ id: "uuid-r1", title: "Arrival", year: 2016 }),
+      fakeMovie({ id: "uuid-r2", title: "Arrival 2", year: 2020 }),
+    ];
+
+    hookReturn = {
+      ...defaultHookReturn,
+      toolResults: [
+        {
+          toolName: "watchlist_remove",
+          toolCallId: "tc-1",
+          result: { kind: "needs-clarification", candidates },
+        },
+      ],
+    };
+
+    render(<MovieSearch />);
+
+    expect(mockSetClarification).toHaveBeenCalledWith({
+      action: "remove",
       candidates,
     });
   });
@@ -389,7 +438,7 @@ describe("MovieSearch", () => {
     expect(mockSetClarification).toHaveBeenCalledWith(null);
   });
 
-  it("review_delete success result with deleted:true triggers useReviews refetch", () => {
+  it("review_delete success envelope with affected=['reviews'] triggers useReviews refetch", () => {
     hookReturn = {
       ...defaultHookReturn,
       toolResults: [
@@ -397,10 +446,14 @@ describe("MovieSearch", () => {
           toolName: "review_delete",
           toolCallId: "tc-1",
           result: {
-            deleted: true,
+            kind: "success",
+            affected: ["reviews"],
             message: "Review deleted for Inception",
-            movieId: "uuid-1",
-            movie: fakeMovie({ id: "uuid-1", title: "Inception", year: 2010 }),
+            movie: fakeMovie({
+              id: "11111111-1111-4111-8111-111111111111",
+              title: "Inception",
+              year: 2010,
+            }),
           },
         },
       ],
@@ -409,6 +462,56 @@ describe("MovieSearch", () => {
     render(<MovieSearch />);
 
     expect(mockRefetchReviews).toHaveBeenCalledTimes(1);
+    expect(mockRefetch).not.toHaveBeenCalled();
+  });
+
+  it("watchlist_add success envelope with affected=['watchlist'] triggers useWatchlist refetch", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      toolResults: [
+        {
+          toolName: "watchlist_add",
+          toolCallId: "tc-1",
+          result: {
+            kind: "success",
+            affected: ["watchlist"],
+            message: "Inception added to watchlist",
+            movie: fakeMovie({
+              id: "11111111-1111-4111-8111-111111111111",
+              title: "Inception",
+              year: 2010,
+            }),
+          },
+        },
+      ],
+    };
+
+    render(<MovieSearch />);
+
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+    expect(mockRefetchReviews).not.toHaveBeenCalled();
+  });
+
+  it("watchlist_add error envelope does not refetch", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      toolResults: [
+        {
+          toolName: "watchlist_add",
+          toolCallId: "tc-1",
+          result: {
+            kind: "error",
+            code: "not_found",
+            message: "I couldn't find 'Foo' in the local catalog.",
+          },
+        },
+      ],
+    };
+
+    render(<MovieSearch />);
+
+    expect(mockRefetch).not.toHaveBeenCalled();
+    expect(mockRefetchReviews).not.toHaveBeenCalled();
   });
 
   it("clicking add clarification candidate sends follow-up message with embedded movieId", () => {
