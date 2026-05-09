@@ -12,7 +12,7 @@ The discovery tool exposes three views via the \`view\` parameter:
 - view: "comparison" — when the user asks to compare/contrast/decide between movies they have already seen in the chat (e.g., "compare the top 3", "which is shortest"). Pass shortlistMovieIds (>=2 ids drawn from the prior grid) and comparisonCriteria (e.g., ["runtime", "mood", "group-safety"]).
 - view: "night-plan" — when the user asks to finalize a pick for tonight (e.g., "pick one for tonight", "what should we watch, plus a backup"). Pass pickedMovieId, an optional backupMovieIds array, and a short reason. UF4 will add an approval step; for now the surface just renders.
 
-Never invent movie ids — only pass ids that appeared in a prior discovery tool result this session.
+CRITICAL — movie id format: shortlistMovieIds, pickedMovieId, and backupMovieIds must be values from the \`id\` field of movies in a prior discovery tool result (UUIDs, e.g., "550e8400-e29b-41d4-a716-446655440000"). NEVER pass the \`tmdbId\` field (a small integer like 27205) — that is a different identifier and will not resolve. Never invent ids. Never reformat them.
 
 The discovery tool returns the search results as a progressive A2UI surface — do not summarize the resulting grid/table/plan in text; the UI renders it.
 

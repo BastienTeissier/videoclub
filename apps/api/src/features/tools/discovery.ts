@@ -28,6 +28,7 @@ const SURFACE_ID = "discovery";
 type WarningCode =
   | "invalid-view"
   | "comparison-too-few"
+  | "comparison-resolution-failed"
   | "night-plan-incomplete"
   | "night-plan-unknown-pick";
 
@@ -42,7 +43,9 @@ export function createDiscoveryTool(db: Database) {
 
 ${getCatalogPromptDescription()}
 
-Pick \`view: "comparison"\` when the user wants a side-by-side compare across a shortlist (>=2 movie ids) of already-discussed movies; pass \`shortlistMovieIds\` (the ids the user asked about) and optional \`comparisonCriteria\` (e.g., ["runtime", "mood", "group-safety"]). Pick \`view: "night-plan"\` when the user asks to pick one for tonight; pass \`pickedMovieId\`, optional \`backupMovieIds\`, and a short \`reason\`. Default to \`view: "grid"\` for fresh discovery queries. Never invent movie ids — only pass ids that appeared in a prior discovery tool result this session.`,
+Pick \`view: "comparison"\` when the user wants a side-by-side compare across a shortlist (>=2 movie ids) of already-discussed movies; pass \`shortlistMovieIds\` (the ids the user asked about) and optional \`comparisonCriteria\` (e.g., ["runtime", "mood", "group-safety"]). Pick \`view: "night-plan"\` when the user asks to pick one for tonight; pass \`pickedMovieId\`, optional \`backupMovieIds\`, and a short \`reason\`. Default to \`view: "grid"\` for fresh discovery queries.
+
+Movie id format: shortlistMovieIds, pickedMovieId, and backupMovieIds MUST be values from the \`id\` field (UUIDs like "550e8400-e29b-41d4-a716-446655440000") of movies returned by a prior discovery call. NEVER pass the \`tmdbId\` field (a small integer) — that identifier will not resolve. Never invent ids.`,
     inputSchema: z.object({
       filters: discoveryFiltersSchema.optional(),
       view: z.string().default("grid"),
@@ -74,23 +77,42 @@ Pick \`view: "comparison"\` when the user wants a side-by-side compare across a 
           effectiveView = "grid";
         } else {
           const rows = await repo.findByIds(ids);
-          const movies: MovieDto[] = rows.map(movieToDto);
-          return {
-            data: {
-              movies,
-              view: "comparison" as const,
-              requestedView,
-              shortlistMovieIds: ids,
-              comparisonCriteria: input.comparisonCriteria ?? [],
-            },
-            a2uiMessages: discoveryComparisonMessages({
-              surfaceId: SURFACE_ID,
-              movies,
-              shortlistIds: ids,
-              criteria: input.comparisonCriteria,
-            }),
-            ...(warnings.length ? { warnings } : {}),
-          };
+          const resolvedIds = new Set(rows.map((r) => r.id));
+          const unresolved = ids.filter((id) => !resolvedIds.has(id));
+          if (rows.length < 2) {
+            // Common cause: LLM passed tmdbId values instead of `id` UUIDs.
+            // Fall back to grid; warning surfaces the unresolved ids so the
+            // LLM can self-correct on the next turn (warnings are stripped
+            // from the wire, but data.error stays in TOOL_CALL_RESULT).
+            warnings.push({
+              code: "comparison-resolution-failed",
+              requestedCount: ids.length,
+              resolvedCount: rows.length,
+              unresolvedIds: unresolved,
+            });
+            effectiveView = "grid";
+          } else {
+            const movies: MovieDto[] = rows.map(movieToDto);
+            return {
+              data: {
+                movies,
+                view: "comparison" as const,
+                requestedView,
+                shortlistMovieIds: ids,
+                comparisonCriteria: input.comparisonCriteria ?? [],
+                ...(unresolved.length
+                  ? { unresolvedIds: unresolved }
+                  : {}),
+              },
+              a2uiMessages: discoveryComparisonMessages({
+                surfaceId: SURFACE_ID,
+                movies,
+                shortlistIds: rows.map((r) => r.id),
+                criteria: input.comparisonCriteria,
+              }),
+              ...(warnings.length ? { warnings } : {}),
+            };
+          }
         }
       }
 
@@ -138,12 +160,20 @@ Pick \`view: "comparison"\` when the user wants a side-by-side compare across a 
       const { moods: _moods, ...dbFilters } = filters;
       const rows = await searchMoviesData(db, dbFilters);
       const movies: MovieDto[] = rows.map(movieToDto);
+      // Surface the most-recent fallback warning inside `data` (warnings are
+      // stripped from the wire) so the LLM can narrate why the requested
+      // view was rejected and self-correct on the next turn.
+      const fallbackWarning =
+        requestedView !== "grid" && warnings.length > 0
+          ? warnings[warnings.length - 1]
+          : null;
       return {
         data: {
           movies,
           filters,
           view: "grid" as const,
           requestedView,
+          ...(fallbackWarning ? { fallbackReason: fallbackWarning } : {}),
         },
         a2uiMessages: discoveryGridMessages({
           surfaceId: SURFACE_ID,

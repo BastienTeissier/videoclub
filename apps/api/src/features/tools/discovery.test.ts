@@ -164,6 +164,51 @@ describe("discovery tool", () => {
     expect(findByIds).not.toHaveBeenCalled();
   });
 
+  it("view=comparison falls back to grid + comparison-resolution-failed when fewer than 2 ids resolve", async () => {
+    // Simulates the LLM passing tmdbId values (or other unrelated strings)
+    // that don't match any UUID in the movies table.
+    findByIds.mockResolvedValueOnce([]); // none of the ids resolve
+    searchStructured.mockResolvedValueOnce([]);
+    const result = (await execTool({
+      view: "comparison",
+      shortlistMovieIds: ["27205", "100", "200"],
+    })) as {
+      data: { view: string; requestedView: string; fallbackReason?: { code: string; unresolvedIds?: string[] } };
+      warnings: Array<{ code: string; resolvedCount?: number; unresolvedIds?: string[] }>;
+    };
+    expect(result.data.view).toBe("grid");
+    expect(result.data.requestedView).toBe("comparison");
+    expect(result.warnings[0]!.code).toBe("comparison-resolution-failed");
+    expect(result.warnings[0]!.resolvedCount).toBe(0);
+    expect(result.warnings[0]!.unresolvedIds).toEqual(["27205", "100", "200"]);
+    expect(result.data.fallbackReason?.code).toBe("comparison-resolution-failed");
+  });
+
+  it("view=comparison renders partial shortlist when some ids resolve and some don't (>=2 resolved)", async () => {
+    findByIds.mockResolvedValueOnce([
+      makeRow("real-a", "A"),
+      makeRow("real-b", "B"),
+    ]);
+    const result = (await execTool({
+      view: "comparison",
+      shortlistMovieIds: ["real-a", "real-b", "fake-c"],
+    })) as {
+      data: { view: string; movies: { id: string }[]; unresolvedIds?: string[] };
+      a2uiMessages: Array<{ updateDataModel?: { path: string; value: { shortlistIds?: string[] } } }>;
+    };
+    expect(result.data.view).toBe("comparison");
+    expect(result.data.movies.map((m) => m.id)).toEqual(["real-a", "real-b"]);
+    expect(result.data.unresolvedIds).toEqual(["fake-c"]);
+    // Renderer's shortlistIds should match resolved rows so it never renders ghost rows
+    const comparisonUpdate = result.a2uiMessages.find(
+      (m) => m.updateDataModel?.path === "/comparison",
+    );
+    expect(comparisonUpdate?.updateDataModel?.value.shortlistIds).toEqual([
+      "real-a",
+      "real-b",
+    ]);
+  });
+
   it("view=night-plan: findByIds called with [picked, ...backups] and emits 4 frames", async () => {
     findByIds.mockResolvedValueOnce([
       makeRow("id-a", "Picked"),
