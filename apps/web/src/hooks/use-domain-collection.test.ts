@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import { useDomainCollection } from "./use-domain-collection";
+import { useDomainCollection } from "./use-domain-collection.js";
 
 interface Item {
   id: string;

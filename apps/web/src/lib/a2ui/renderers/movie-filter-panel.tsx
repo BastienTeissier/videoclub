@@ -1,8 +1,8 @@
 "use client";
 
-import { useA2UISurface } from "../store";
-import { get } from "../json-pointer";
-import type { RendererProps } from "../renderer-types";
+import { useA2UISurface } from "../store.js";
+import { get } from "../json-pointer.js";
+import type { RendererProps } from "../renderer-types.js";
 
 interface FilterChips {
   genres?: string[];

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { A2UIRenderer } from "../registry";
-import { applyMessage, clearAllSurfaces, getSurface } from "../store";
+import { A2UIRenderer } from "../registry.js";
+import { applyMessage, clearAllSurfaces, getSurface } from "../store.js";
 
 const mockUpsertReview = vi.fn();
 vi.mock("@/hooks/use-movie-state", () => ({

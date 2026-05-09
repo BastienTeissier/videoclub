@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { StarRating } from "./star-rating";
+import { StarRating } from "./star-rating.js";
 
 describe("StarRating", () => {
   it("renders 10 half-buttons in interactive mode", () => {

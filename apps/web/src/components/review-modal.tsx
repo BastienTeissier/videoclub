@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@repo/ui";
 import { fetchReview } from "@/lib/api/reviews";
-import { ReviewForm } from "./review-form";
+import { ReviewForm } from "./review-form.js";
 
 interface ReviewModalProps {
   movie: MovieDto;

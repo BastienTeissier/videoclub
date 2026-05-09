@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { MovieDto, ReviewDto } from "@repo/contracts";
-import { ReviewForm } from "./review-form";
+import { ReviewForm } from "./review-form.js";
 
 const mockUpsert = vi.fn();
 const mockDelete = vi.fn();

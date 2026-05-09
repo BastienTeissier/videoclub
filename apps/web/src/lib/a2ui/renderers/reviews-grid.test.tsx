@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { ComponentNode } from "@repo/contracts";
-import { ReviewsGrid } from "./reviews-grid";
-import { applyMessage, clearAllSurfaces } from "../store";
+import { ReviewsGrid } from "./reviews-grid.js";
+import { applyMessage, clearAllSurfaces } from "../store.js";
 
 vi.mock("@/contexts/watchlist-context", () => ({
   useWatchlist: () => ({

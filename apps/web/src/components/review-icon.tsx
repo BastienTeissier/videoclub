@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Star } from "lucide-react";
 import type { MovieDto } from "@repo/contracts";
 import { useMovieState } from "@/hooks/use-movie-state";
-import { ReviewModal } from "./review-modal";
+import { ReviewModal } from "./review-modal.js";
 
 interface ReviewIconProps {
   movie: MovieDto;

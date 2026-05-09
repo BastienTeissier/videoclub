@@ -5,7 +5,7 @@ import type {
   GetReviewResponse,
   ListReviewRatingsResponse,
 } from "@repo/contracts";
-import { apiFetch } from "./client";
+import { apiFetch } from "./client.js";
 
 export function upsertReview(movieId: string, body: UpsertReviewRequest) {
   return apiFetch<UpsertReviewResponse>(`/api/v1/reviews/${movieId}`, {

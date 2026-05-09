@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useMovieState } from "./use-movie-state";
+import { useMovieState } from "./use-movie-state.js";
 
 const mockToggleWatchlist = vi.fn();
 const mockUpsertReview = vi.fn();

@@ -3,7 +3,7 @@ import type {
   RemoveFromWatchlistResponse,
   WatchlistResponse,
 } from "@repo/contracts";
-import { apiFetch } from "./client";
+import { apiFetch } from "./client.js";
 
 export function addToWatchlist(movieId: string) {
   return apiFetch<AddToWatchlistResponse>(`/api/v1/watchlist/${movieId}`, {

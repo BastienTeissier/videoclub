@@ -2,9 +2,9 @@
 
 import type { MovieDto } from "@repo/contracts";
 import { ReviewForm as ReviewFormComponent } from "@/components/review-form";
-import { useA2UISurface, clearSurface } from "../store";
-import { get } from "../json-pointer";
-import type { RendererProps } from "../renderer-types";
+import { useA2UISurface, clearSurface } from "../store.js";
+import { get } from "../json-pointer.js";
+import type { RendererProps } from "../renderer-types.js";
 
 interface ReviewFormState {
   movie: MovieDto;
