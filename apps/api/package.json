@@ -20,6 +20,7 @@
     "@repo/db": "workspace:*",
     "@repo/tmdb-client": "workspace:*",
     "ai": "^6.0.137",
+    "fast-json-patch": "^3.1.1",
     "hono": "^4.12.8",
     "ollama-ai-provider-v2": "^3.5.0",
     "zod": "^4.3.6"

@@ -26,11 +26,161 @@
 - Invalid `view` value → fallback to `"grid"` + `CUSTOM { name: "warning", value: { code: "invalid-view", ... } }`; do not emit `RUN_ERROR` for nonfatal warnings
 - HITL approval round-trip: `RUN_FINISHED { result: { type: "interrupt", interrupts: [{ id: toolCallRecordId, reason, message, proposed, responseSchema }] } }` → user response in next run request/body → resume by `interruptId`, not by tool name
 - `search_tmdb` HITL migrated to the same interrupt pattern (no behavior regression)
-- `review-form` keeps tagged-union dispatch (intentional baseline)
+- Clarification (ambiguous-title disambiguation) is also an interrupt — see §1.5 Amendment B
+- `review-form` is rendered via the A2UI store, **not** tagged-union — see §1.5 Amendment E (this withdraws the v1 "intentional tagged-union baseline")
 - Inspector caps display at most-recent ~200 events
 - Memory does not persist across browser sessions if no auth — keyed by current user
 
 **Visual Design**: see `prd.md` (LY3 sketches + A2UI/HITL message shapes).
+
+---
+
+## 1.5 Architecture amendments (post-v1)
+
+Three deepening refactors changed since plan v1, each in service of locality (changes/bugs concentrate in one module) and reduced cross-module coordination. Domain language is in `/CONTEXT.md`.
+
+### Amendment A — `MutationOutcome` envelope
+
+Replaces the per-tool ad-hoc result shapes (`{deleted, message, movieId, movie}`, `{added, ...}`, `{clarification_needed, action, candidates}`, etc.) with a single discriminated envelope on the wire.
+
+- New module: `packages/contracts/src/agent/mutation-outcome.ts` 🟢 — Zod schemas `mutationOutcomeSchema = success | error | needs-clarification` and `wireMutationOutcomeSchema = success | error` (the wire shape clients see; the stream layer never forwards `needs-clarification`).
+- Variants:
+  - `{ kind: "success", affected: DomainKey[], message, movie? }`
+  - `{ kind: "error", code: "not_found" | "no_review" | "service_error", message }`
+  - `{ kind: "needs-clarification", candidates: MovieDto[] }` (server-only marker — see Amendment B)
+- New type: `domainKeySchema = z.enum(["watchlist", "reviews"])` exported alongside.
+- Affected tools: `review_delete`, `watchlist_add`, `watchlist_remove`. Each tool's `execute` returns one of the three variants.
+
+The depth: the frontend dispatches on `outcome.affected` rather than pattern-matching per tool name. Adding a fifth mutating tool changes zero frontend code.
+
+### Amendment B — Clarification as interrupt
+
+The "ambiguous title → user picks among candidates" flow is unified with HITL approval (`commit_movie_night`) under one mechanism: AG-UI interrupts.
+
+- The mutating tool returns `{kind: "needs-clarification", candidates}` (Amendment A's third variant).
+- `services/agents/ag-ui-stream.ts` 🟡 detects this on `tool-result`. Instead of forwarding the result, it:
+  - Builds an `Interrupt` with `id = toolCallRecordId`, `responseSchema = { pickedMovieId: { enum: candidate ids } }`, `proposed = { candidates }`, `reason = "clarification"`.
+  - Emits `RUN_FINISHED { result: { type: "interrupt", interrupts: [interrupt] } }` and stops.
+- On resume, `agentRun.resume` (Amendment C) re-invokes the original tool with `{ ...originalInput, movieId: response.pickedMovieId }`, then re-enters `streamText` so the LLM continues reasoning after the disambiguation lands.
+
+Deletes:
+- `chat-results-context.clarification` field
+- `extractApprovalResponses`'s hardcoded `"search_tmdb"` fallback (replaced by structured `interruptId`)
+- The synthetic-message hack in `movie-search.tsx` (`"review [movieId:X] ..."`) — the user's choice rides the structured interrupt response, not a fake chat message
+
+### Amendment C — `AgentRun` module
+
+Replaces `runOrchestrator`, `runApprovedTool`, and `buildApprovalStream` with one module owning the run lifecycle.
+
+- New module: `apps/api/src/services/agents/agent-run.ts` 🟢
+  ```ts
+  export function agentRun(db: Database) {
+    return {
+      start({ userId, threadId?, runId, messages }): AsyncIterable<string>;
+      resume({ userId, threadId, runId, interruptId, response }): AsyncIterable<string>;
+    };
+  }
+  ```
+- Both methods: resolve session, create/look-up run row, configure `streamText` with `onFinish` for persistence, then `yield* streamAgUiEvents(...)`. Persistence stays in `onFinish`; `streamAgUiEvents` stays a pure protocol-translation layer.
+- `resume` re-enters `streamText` with the resolved tool-result injected as a `tool` message in history. The LLM continues reasoning after the interrupt resolves (acknowledges the resolution naturally instead of stopping).
+- Repository addition: `agentRunsRepository.findToolCallById(id)` — needed for resume to look up pending tool call by `interruptId`. Trivial.
+- DB run identity on resume: continuation tool calls + assistant message are recorded against the **same `agent_runs` row** as the interrupting run (the run conceptually "still running" until the interrupt resolves). Resume does not create a new run row.
+
+The route (`features/chat/route.ts`) shrinks to ~40 lines:
+
+```ts
+const { interruptId, response } = extractInterruptResponse(messages);
+const events = interruptId
+  ? agentRun(db).resume({ userId, threadId, runId, interruptId, response })
+  : agentRun(db).start({ userId, threadId, runId, messages: aiSdkMessages });
+return new Response(asReadableStream(events), { headers: SSE_HEADERS });
+```
+
+Hard-cut: `runOrchestrator`, `runApprovedTool`, `buildApprovalStream` are deleted (no shims). This supersedes the C5 / C17 / Phase 3 "refactor `runApprovedTool` → `runResumedRun`" tasks: the rename becomes a relocation into `agentRun.resume`.
+
+### Amendment D — Frontend domain-state primitives
+
+Replaces 140 lines × 2 of duplicated optimistic-update boilerplate with one primitive plus an aggregator hook, and deletes `chat-results-context` entirely.
+
+- New module: `apps/web/src/hooks/use-domain-collection.ts` 🟢
+  ```ts
+  function useDomainCollection<T, K, S>(config: {
+    fetch: () => Promise<T[]>;
+    toState: (items: T[]) => S;
+    initialState: S;
+  }): {
+    state: S;
+    refetch: () => Promise<void>;
+    mutate: <R>(key: K, plan: {
+      optimistic: (s: S) => S;
+      rollback: (s: S) => S;
+      perform: () => Promise<R>;
+    }) => Promise<R>;
+  };
+  ```
+  Owns the per-item request counter and the rule "only roll back if your counter is still the latest" — once.
+
+- `apps/web/src/contexts/{watchlist,review}-context.tsx` 🟡 — both contexts shrink to ~30 lines: thin wrappers around `useDomainCollection` providing domain-shaped state (`Set<id>` and `Map<id, rating>`) and domain-named methods (`addToWatchlist`, `upsertReview`, etc.).
+
+- New module: `apps/web/src/hooks/use-movie-state.ts` 🟢
+  ```ts
+  function useMovieState(movieId: string): {
+    inWatchlist: boolean;
+    reviewRating?: number;
+    toggleWatchlist: () => Promise<void>;
+    upsertReview: (body: UpsertReviewRequest) => Promise<UpsertReviewResponse>;
+    deleteReview: () => Promise<DeleteReviewResponse>;
+  };
+  ```
+  Composes both contexts. Components (`movie-card`, `bookmark-icon`, `review-icon`, `review-modal`) replace their dual `useReviews()` + `useWatchlist()` calls with one `useMovieState(movieId)`.
+
+- New module: `apps/web/src/lib/domain-refetchers.ts` 🟢 (or inline in `use-agent-chat`) — `Record<DomainKey, () => Promise<void>>` registry. The agent-mutation dispatcher in `movie-search.tsx` reduces to:
+  ```ts
+  for (const tr of newToolResults) {
+    const outcome = wireMutationOutcomeSchema.safeParse(tr.result);
+    if (outcome.success && outcome.data.kind === "success") {
+      outcome.data.affected.forEach((d) => refetchers[d]());
+    }
+  }
+  ```
+
+- `apps/web/src/contexts/chat-results-context.tsx` ❌ — **deleted entirely**. After Amendments A + B + E, all three of its fields (`movies`, `a2uiSurface`, `clarification`) are obsolete.
+
+Optimistic updates only fire on direct UI actions (clicking bookmark, submitting review form). Agent-driven mutations refetch via the `DomainKey` registry — they're already settled server-side by the time the frontend learns.
+
+### Amendment E — `review_add` → `review_prefill`
+
+The tool was misnamed: it builds a prefilled review form surface for confirmation; it never persists a review. The actual review write happens via REST when the user submits the form.
+
+- Server: rename `createReviewAddTool` → `createReviewPrefillTool`; rename file `features/tools/review-add.ts` → `review-prefill.ts`; tool registry key changes from `review_add` to `review_prefill`; system prompt updated.
+- Wire shape: tool moves from tagged-union return (`{type: "review-form", ...}`) to surface-emitting (`{data, a2uiMessages, warnings?}`) — same pattern as `discovery`, `watchlist_show`, `review_show`. The `review-form` renderer is invoked through the A2UI store, not the tagged-union dispatch.
+- Frontend: `lib/a2ui/registry.tsx` no longer needs the tagged-union branch — it always dispatches via the protocol path. `lib/a2ui/renderers/review-form.tsx` reads its data from the surface's bound path instead of a typed prop.
+- **Withdraws**: §1 line 29 ("`review-form` keeps tagged-union dispatch (intentional baseline)"), §6 line 611 ("review-add ... stays as-is"), §8 line 675 ("review-form is intentionally kept tagged-union"). The talk's "JSON maison baseline" framing is replaced by the unified A2UI-protocol-everywhere story.
+
+### Implementation order (cross-cuts plan phases)
+
+1. **Amendment A** first — pure contract change; touches only the four mutating tools and adds one new file in `@repo/contracts`. Test at the new envelope's seam.
+2. **Amendment B** + **C** together — both ride the interrupt mechanism. C subsumes Phase 3's `runResumedRun` task. Tests use a real in-memory DB through `agentRun.start | resume`; protocol tests assert the interrupt-construction in `ag-ui-stream`.
+3. **Amendment D** after A + C land — frontend cleanly absorbs the new envelope and the unified `pendingInterrupt`.
+4. **Amendment E** is orthogonal — slot it into Phase 1 alongside the other surface-emitting tool migrations.
+
+### Section supersedure
+
+| Plan v1 section | Status |
+|---|---|
+| §1 "review-form keeps tagged-union dispatch (intentional baseline)" | **Withdrawn** (Amendment E) |
+| §1 "call the review_add tool" prompting rules | Renamed (Amendment E) |
+| §3.B (contracts) | Add `mutation-outcome.ts` (Amendment A) |
+| §3.C C4 (ag-ui-stream) | Also builds clarification interrupts (Amendment B) |
+| §3.C C5 + C17 (orchestrator + route resume rewrite) | **Superseded** by `agentRun` module (Amendment C) |
+| §3.C C14 / `review-add.ts` | Renamed to `review-prefill.ts`, surface-emitting (Amendment E) |
+| §3.D D12 / D13 (review-form renderer + registry) | Now A2UI-backed; registry drops tagged-union branch (Amendment E) |
+| §3.D D16 (use-agent-chat) | `pendingInterrupt` covers clarification too; remove projection (Amendment B) |
+| §3.D D26 (movie-search) | 70-line projection useEffect → ~5-line envelope dispatcher (Amendments A + B + D) |
+| §3.D new | `useDomainCollection`, `useMovieState`, refetcher registry, removal of chat-results-context (Amendment D) |
+| §6 line 611 (review-add "stays as-is") | **Withdrawn** (Amendment E) |
+| §6 line 621 (chat-results-context) | Deleted (Amendment D) |
+| §8 line 675 (review-form intentionally tagged-union) | **Withdrawn** (Amendment E) |
 
 ---
 
@@ -89,6 +239,15 @@ In `packages/contracts/src/agent/interrupts.ts` 🟢:
 - `interruptSchema` — `{ id, reason, message, proposed: unknown, responseSchema: JsonSchema }`
 - `commitMovieNightProposedSchema` — `{ pickedMovieId, backupMovieIds: string[], reason: string }`
 - `commitMovieNightResponseSchema` — `{ approved: boolean, editedReason?: string }`; server uses `editedReason ?? proposed.reason`, never `response.reason`
+- `clarificationProposedSchema` — `{ candidates: MovieDto[] }` (Amendment B)
+- `clarificationResponseSchema` — `{ pickedMovieId: string }` (Amendment B)
+- `clarificationInterrupt(toolCallRecordId, candidates)` builder — produces an `Interrupt` with `responseSchema = { properties: { pickedMovieId: { enum: candidate ids } } }`
+
+In `packages/contracts/src/agent/mutation-outcome.ts` 🟢 (Amendment A):
+- `domainKeySchema` — `z.enum(["watchlist", "reviews"])`
+- `mutationErrorCodeSchema` — `z.enum(["not_found", "no_review", "service_error"])`
+- `mutationOutcomeSchema` — discriminated union on `kind`: `success | error | needs-clarification`
+- `wireMutationOutcomeSchema` — discriminated union on `kind`: `success | error` (the shape clients receive; the stream layer translates `needs-clarification` to a clarification interrupt before it reaches the wire)
 
 In `packages/contracts/src/http/movie-night.ts` 🟢:
 - `movieNightPlanSchema` — `{ id, userId, runId, pickedMovieId, backupMovieIds, reason, createdAt }`
@@ -135,7 +294,9 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 
 **B3.** `agent/viewing-preferences.ts` 🟢 — schemas + `applyPatch(prev, patch)` pure helper returning `{ next, jsonPatchOps }`.
 
-**B4.** `agent/interrupts.ts` 🟢 — interrupt schemas + `commitMovieNightInterrupt(proposed)` builder.
+**B4.** `agent/interrupts.ts` 🟢 — interrupt schemas + `commitMovieNightInterrupt(proposed)` and `clarificationInterrupt(toolCallRecordId, candidates)` builders (Amendment B).
+
+**B4b.** `agent/mutation-outcome.ts` 🟢 (Amendment A) — `mutationOutcomeSchema`, `wireMutationOutcomeSchema`, `domainKeySchema`, `mutationErrorCodeSchema`. Imported by all mutating tools and by the frontend dispatcher.
 
 **B5.** `agent/index.ts` 🟢 — barrel.
 
@@ -162,13 +323,36 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 - Wrap each tool call with `STEP_STARTED { stepName: stepLabelFor(toolName) }` / `STEP_FINISHED { stepName: ... }` (installed AG-UI field is `stepName`, not `name`)
 - Synthetic `"Parsing intent"` step opens at run start, closes at first `tool-call` or `text-delta`
 - HITL: when stream ends with a tool call awaiting approval, persist/create the pending `tool_calls` row if needed and emit `RUN_FINISHED { result: { type: "interrupt", interrupts: [buildInterrupt(toolCallRecordId, toolName, input)] } }` instead of plain `RUN_FINISHED`
+- **Clarification (Amendment B)**: on `tool-result` whose output matches `{kind: "needs-clarification", candidates}`, persist the pending `tool_calls` row, build an `Interrupt` via `clarificationInterrupt(toolCallRecordId, candidates)`, emit `RUN_FINISHED { result: { type: "interrupt", interrupts: [interrupt] } }`, and stop. Do **not** emit `TOOL_CALL_RESULT` for needs-clarification outputs — the marker is server-only.
 - Nonfatal warnings (invalid `view`, fixture miss, catalog drift) emit `CUSTOM { name: "warning", value: { code, message, ... } }`; reserve `RUN_ERROR` for terminal run failure only
 
-`stepLabelFor` map: `search_movies` → "Searching local catalog"; `search_tmdb` → "Searching TMDB"; `watchlist_show` → "Loading your watchlist"; `watchlist_add/remove` → "Updating watchlist"; `review_add` → "Preparing review form"; `review_show` → "Loading your reviews"; `update_preferences` → "Updating memory"; `commit_movie_night` → "Committing tonight's plan"; `show_movie_details` → "Opening details"; `highlight_comparison_criteria` → "Highlighting columns"; `discovery` → "Building discovery surface".
+`stepLabelFor` map: `search_movies` → "Searching local catalog"; `search_tmdb` → "Searching TMDB"; `watchlist_show` → "Loading your watchlist"; `watchlist_add/remove` → "Updating watchlist"; `review_prefill` → "Preparing review form"; `review_show` → "Loading your reviews"; `review_delete` → "Deleting review"; `update_preferences` → "Updating memory"; `commit_movie_night` → "Committing tonight's plan"; `show_movie_details` → "Opening details"; `highlight_comparison_criteria` → "Highlighting columns"; `discovery` → "Building discovery surface".
 
-**C5.** `services/agents/orchestrator.ts` 🟡 — before session creation, load the latest existing viewing preferences for `userId`; create new sessions seeded with that snapshot; inject `formatMemoryForSystemPrompt(memory)` into system prompt suffix; pass `memory` to `streamAgUiEvents` options; register new tools (`discovery`, `update_preferences`, `commit_movie_night`, `show_movie_details`, `highlight_comparison_criteria`); refactor `runApprovedTool` → `runResumedRun(db, sessionId, userId, interruptId, response)` (generic interrupt resume by pending `tool_calls.id` — for `commit_movie_night`, validate response, reject double-submit if pending output is already set, and call `movieNightService.commit(...)` with `response.editedReason ?? proposed.reason`); if `DEMO_MODE_FIXTURES=true`, short-circuit `streamText` to a fixture-driven async iterable yielding recorded `tool-call`/`tool-result` parts.
+**C5.** ~~`services/agents/orchestrator.ts`~~ **Superseded by Amendment C — `services/agents/agent-run.ts` 🟢**
 
-**C6.** `services/agents/message-translator.ts` 🟡 — generalize `extractApprovalResponses` beyond `search_tmdb`; parse JSON content as `{ approved, interruptId, ...rest }`; surface `editedReason`; when translating AG-UI tool messages back to AI SDK `ModelMessage`, recover the original `toolName` from the prior assistant tool call instead of emitting `toolName: ""`.
+The orchestrator file is replaced by `agentRun(db) → { start, resume }` (see §1.5 Amendment C). What `start` and `resume` own:
+
+- **`start`** (replaces `runOrchestrator`):
+  - Before session creation, load the latest existing viewing preferences for `userId`; create new sessions seeded with that snapshot.
+  - Inject `formatMemoryForSystemPrompt(memory)` into system prompt suffix; pass `memory` to `streamAgUiEvents` options (so it can emit `STATE_SNAPSHOT`).
+  - Register tools: `discovery`, `search_tmdb`, `watchlist_show`, `watchlist_add`, `watchlist_remove`, `review_show`, `review_delete`, `review_prefill` (renamed from `review_add` per Amendment E), `update_preferences`, `commit_movie_night`, `show_movie_details`, `highlight_comparison_criteria`.
+  - Configure `streamText` with `onFinish` for persistence (tool calls, assistant message, run completion) and `onError` to mark run failed.
+  - `yield* streamAgUiEvents(stream.fullStream, { threadId, runId })`.
+  - If `DEMO_MODE_FIXTURES=true`, short-circuit `streamText` to a fixture-driven async iterable yielding recorded `tool-call`/`tool-result` parts.
+
+- **`resume`** (replaces `runApprovedTool`):
+  - Look up pending tool call by `interruptId` (= `tool_calls.id`) via the new `agentRunsRepository.findToolCallById`.
+  - Validate `response` against the original interrupt's `responseSchema`; reject double-submit if pending output is already set.
+  - Merge response into pending input. Per-tool merge:
+    - Clarification interrupt → `{ ...pending.input, movieId: response.pickedMovieId }`
+    - `commit_movie_night` → `{ ...pending.input, reason: response.editedReason ?? pending.input.reason }`
+    - `search_tmdb` legacy → existing approval shape
+  - Invoke the tool's `execute` with the merged input; record output on the pending tool call (same `agent_runs` row).
+  - **Re-enter `streamText`** with the resolved tool-result message appended to the run's history so the LLM continues reasoning post-resolution. Same `onFinish` / `onError` wiring as `start`. Yield AG-UI events through `streamAgUiEvents`.
+
+This supersedes the v1 `runResumedRun` task: rather than a renamed function, the resume path becomes a method on the `agentRun` module, sharing all session/persistence/streaming infrastructure with `start`.
+
+**C6.** `services/agents/message-translator.ts` 🟡 — generalize `extractApprovalResponses` beyond `search_tmdb`; rename to `extractInterruptResponse(messages) → { interruptId, response } | null`. Parse JSON content as `{ interruptId, response }`. Drop the hardcoded `"search_tmdb"` fallback (Amendment B replaces it with structured `interruptId`). When translating AG-UI tool messages back to AI SDK `ModelMessage`, recover the original `toolName` from the prior assistant tool call instead of emitting `toolName: ""`.
 
 **C7.** `services/movie-night.ts` 🟢 — `commit({ db, userId, runId, pickedMovieId, backupMovieIds, reason })` → inserts row.
 
@@ -184,6 +368,10 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 
 **C13.** `features/tools/review-show.ts` 🟡 — same pattern as C12.
 
+**C13b.** `features/tools/review-prefill.ts` 🟢 (Amendment E — was `review-add.ts`) — renamed; converted from tagged-union return to surface-emitting. Returns `{ data: { movie, rating, text? }, a2uiMessages: reviewFormMessages(...) }`. The frontend reads `useA2UISurface("review-form")` rather than projecting through `chat-results-context`. Tool registry key: `review_prefill`.
+
+**C13c.** Mutation tools (Amendment A) — `features/tools/{review-delete,watchlist-add,watchlist-remove}.ts` 🟡 each returns `MutationOutcome` (`{kind: "success", affected, message, movie?}` | `{kind: "error", code, message}` | `{kind: "needs-clarification", candidates}`). Drop the bespoke `{deleted, added, removed, clarification_needed, action}` shapes. The `needs-clarification` variant is server-only — `ag-ui-stream` translates it into a clarification interrupt before it reaches the wire (see C4 + Amendment B).
+
 **C14.** `features/tools/show-movie-details.ts` 🟢 — client-side tool declaration: `tool({ inputSchema: z.object({ movieId: z.string() }) })` with **no server `execute`**. Registered as client-side via constant in `services/agents/client-side-tools.ts`; fire-and-forget, no `TOOL_CALL_RESULT` expected.
 
 **C15.** `features/tools/highlight-comparison-criteria.ts` 🟢 — same no-`execute` client-side pattern. Input `{ criteria: z.array(z.string()) }`.
@@ -192,7 +380,27 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 
 **C19.** `services/agents/json-patch-adapter.ts` 🟢 — thin wrapper aligning `fast-json-patch`'s `Operation[]` with AG-UI core's `StateDeltaEvent.delta` typing. Functions: `toAgUiDelta(ops)`, `fromAgUiDelta(delta)`. Avoids casting throughout the codebase.
 
-**C17.** `features/chat/route.ts` 🟡 — pass `memory` snapshot and DB `runId` from orchestrator into `streamAgUiEvents`; emit the DB run id as AG-UI `runId` for traceability; replace `buildApprovalStream` with a generic `buildResumeStream(threadId, runId, userId, interruptId, response)` that calls `runResumedRun`. Approval/rejection responses should be accepted through a typed request extension (`forwardedProps.interruptResponse` or explicit body field), not by mutating `agent.messages` with ad hoc tool messages.
+**C17.** `features/chat/route.ts` 🟡 — **Superseded by Amendment C.** Route shrinks to ~40 lines:
+
+```ts
+chat.post("/", async (c) => {
+  const body = await c.req.json();
+  const parsed = runAgentInputSchema.safeParse(body);
+  if (!parsed.success) return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+
+  const userId = c.get("userId");
+  const { threadId, runId, messages: agUiMessages, forwardedProps } = parsed.data;
+
+  const interruptResponse = extractInterruptResponse(agUiMessages, forwardedProps);
+  const events = interruptResponse
+    ? agentRun(db).resume({ userId, threadId, runId, ...interruptResponse })
+    : agentRun(db).start({ userId, threadId, runId, messages: agUiToAiSdk(agUiMessages) });
+
+  return new Response(asReadableStream(events), { headers: SSE_HEADERS });
+});
+```
+
+Interrupt responses arrive via a typed request extension — `forwardedProps.interruptResponse: { interruptId, response }` — not by mutating `agent.messages`. `buildApprovalStream` and `buildResumeStream` are deleted; both paths run through `agentRun`.
 
 **C18.** `features/movie-night/route.ts` 🟢 *(optional, parity)* — `GET /` lists committed plans for the current user.
 
@@ -220,15 +428,17 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 
 **D11.** `lib/a2ui/renderers/reviews-grid.tsx` 🟡 — same as D10.
 
-**D12.** `lib/a2ui/renderers/review-form.tsx` ⚪ — stays as tagged-union renderer.
+**D12.** `lib/a2ui/renderers/review-form.tsx` 🟡 (Amendment E) — converted to A2UI-backed renderer; reads `movie`, `rating`, `text` from bound paths instead of typed props. No longer a tagged-union renderer.
 
-**D13.** `lib/a2ui/registry.tsx` 🟡 — two paths: tagged-union (`review-form` only) → existing dispatch; protocol surface → `<A2UIRenderer surfaceId="..."/>` walks the component graph from store.
+**D13.** `lib/a2ui/registry.tsx` 🟡 (Amendment E simplifies) — single path: `<A2UIRenderer surfaceId="..."/>` walks the component graph from store. The tagged-union dispatch branch is removed entirely; every renderer (including `review-form`) goes through the protocol path.
 
 **D14.** `lib/ag-ui/client.ts` ⚪ — no change (HttpAgent already supports CUSTOM/STATE events).
 
 **D15.** `lib/ag-ui/frontend-tools.ts` 🟢 — `Record<toolName, (args) => void>`. Handlers call into respective contexts (modal, comparison-table imperative ref).
 
-**D16.** `hooks/use-agent-chat.ts` 🟡 — subscribe to `onCustomEvent` (route `a2ui` → A2UI store; `memory-applied`/`warning` → memory/inspector highlights); `onStateSnapshotEvent`/`onStateDeltaEvent` → memory context; `onStepStartedEvent`/`onStepFinishedEvent` → activity context; `onRunFinishedEvent` reads `event.result` and, when `result.type === "interrupt"`, sets `pendingInterrupt`; on `onToolCallEndEvent` for client-side tools, dispatch via `frontend-tools.ts` and do not add them to pending approval detection. Replace `pendingApproval: PendingApproval` with `pendingInterrupt: Interrupt | null`. Add `respondToInterrupt(response)` — design a clean wire-format extension point (do **not** copy the existing `agentRef.current.messages = [...]` mutation in `approveToolCall`, which was a throwaway test). Preferred: call `HttpAgent.runAgent({ forwardedProps: { interruptResponse: { interruptId, response } } })` or an explicit request body extension handled by `chat/route.ts`; if `HttpAgent` exposes a documented method for this, use it.
+**D16.** `hooks/use-agent-chat.ts` 🟡 — subscribe to `onCustomEvent` (route `a2ui` → A2UI store; `memory-applied`/`warning` → memory/inspector highlights); `onStateSnapshotEvent`/`onStateDeltaEvent` → memory context; `onStepStartedEvent`/`onStepFinishedEvent` → activity context; `onRunFinishedEvent` reads `event.result` and, when `result.type === "interrupt"`, sets `pendingInterrupt`; on `onToolCallEndEvent` for client-side tools, dispatch via `frontend-tools.ts` and do not add them to pending approval detection. Replace `pendingApproval: PendingApproval` with `pendingInterrupt: Interrupt | null` — this single channel covers both `commit_movie_night` approval **and** clarification (Amendment B), so no separate clarification state lives in any context. Add `respondToInterrupt(response)` — call `HttpAgent.runAgent({ forwardedProps: { interruptResponse: { interruptId, response } } })` or an explicit request body extension handled by `chat/route.ts`; if `HttpAgent` exposes a documented method for this, use it. Do **not** copy the existing `agentRef.current.messages = [...]` mutation in `approveToolCall`, which was a throwaway test.
+
+The `toolResults` projection useEffect (~70 lines) is removed; agent-mutation refetch dispatch lives in `lib/domain-refetchers.ts` (D29) and reads `wireMutationOutcomeSchema`.
 
 **D17.** `contexts/memory-context.tsx` 🟢 — `applySnapshot`, `applyDelta(jsonPatchOps)` (uses `fast-json-patch`), `markApplied(keys[])` flashes for 1.5s.
 
@@ -248,11 +458,21 @@ Legend: 🟢 new file · 🟡 modified file · ⚪ reused as-is.
 
 **D25.** `components/approval-dialog.tsx` 🟢 — schema-driven from `interrupt.responseSchema` plus small UI hints (`ui:widget`, `ui:prefillFrom`, `maxLength`) stored alongside the JSON schema. Field renderers: `boolean` → checkbox; `string` + `ui:widget="textarea"` → textarea; otherwise short string → input. Submit → `respondToInterrupt({ interruptId, response })`.
 
-**D26.** `components/movie-search.tsx` 🟡 — drop direct `setMovies` path; render discovery surface via `<A2UIRenderer surfaceId="discovery"/>`; show `ApprovalDialog` when `pendingInterrupt` is non-null.
+**D26.** `components/movie-search.tsx` 🟡 — drop direct `setMovies` path; drop the 70-line `toolResults` projection useEffect (replaced by D29 + Amendment B); render discovery surface via `<A2UIRenderer surfaceId="discovery"/>`; render review-form via `<A2UIRenderer surfaceId="review-form"/>` (Amendment E); show `ApprovalDialog` when `pendingInterrupt` is non-null — including when the interrupt is a clarification (Amendment B), in which case the dialog renders the candidate buttons as the schema-driven response widget.
 
-**D27.** `app/layout.tsx` 🟡 — wrap in `MemoryProvider`, `InspectorModeProvider`, `ActivityTimelineProvider`, `EventLogProvider`.
+**D27.** `app/layout.tsx` 🟡 — wrap in `MemoryProvider`, `InspectorModeProvider`, `ActivityTimelineProvider`, `EventLogProvider`. **Drop** `ChatResultsProvider` (Amendment D — `chat-results-context.tsx` deleted).
 
 **D28.** `app/page.tsx` 🟡 — LY3 layout: main column + Memory always-pinned (top-right, sized per mode); right rail (Inspector + Activity) when `inspectorMode === true`.
+
+**D29.** `hooks/use-domain-collection.ts` 🟢 (Amendment D) — generic primitive: `useDomainCollection<T, K, S>({ fetch, toState, initialState }) → { state, refetch, mutate }`. Owns the per-item request counter and the rule "only roll back if your counter is still the latest." Tested at its interface (no internal state assertions).
+
+**D30.** `hooks/use-movie-state.ts` 🟢 (Amendment D) — aggregator: `useMovieState(movieId) → { inWatchlist, reviewRating, toggleWatchlist, upsertReview, deleteReview }`. Composes `useWatchlist` + `useReviews`. Consumers (`movie-card`, `bookmark-icon`, `review-icon`, `review-modal`) drop their dual-context calls.
+
+**D31.** `lib/domain-refetchers.ts` 🟢 (Amendment D) — `Record<DomainKey, () => Promise<void>>` registry. Hooked in `use-agent-chat.ts`'s `onToolCallResultEvent`: parse `wireMutationOutcomeSchema`; on `success`, loop `outcome.affected` and call refetchers. Adding a domain = one entry here + one member in `domainKeySchema` + one extension in `useMovieState`.
+
+**D32.** `contexts/{watchlist,review}-context.tsx` 🟡 (Amendment D) — both contexts shrink to ~30-line wrappers over `useDomainCollection` providing domain-shaped state and domain-named methods. The duplicated counter/rollback logic is gone.
+
+**D33.** `contexts/chat-results-context.tsx` ❌ — **deleted entirely** (Amendments A + B + E together obsolete all three of its fields).
 
 ### E. Environment
 
@@ -303,6 +523,47 @@ Tests for added behavior only. Skip framework/Drizzle/AI-SDK internals.
 - `view:"comparison"` with `shortlistMovieIds` resolves movies via `moviesRepository.findByIds`, no TMDB call
 - `view:"carousel"` (invalid) → falls back to `view:"grid"` + returned warning that `ag-ui-stream` emits as `CUSTOM { name:"warning" }`
 - Description string contains every catalog component name (sanity check on prompt grounding)
+
+**Mutation outcome contract** (Amendment A) — `packages/contracts/src/agent/mutation-outcome.test.ts` 🟢
+- `mutationOutcomeSchema` parses each variant; rejects unknown `kind`
+- `wireMutationOutcomeSchema` rejects `needs-clarification` (server-only marker should not appear on the wire)
+- `success.affected` is non-empty
+- `error.code` is restricted to the closed enum
+
+**Mutation tools** (Amendment A) — `features/tools/{review-delete,watchlist-add,watchlist-remove}.test.ts` 🟡
+- Single-match path returns `{kind: "success", affected: ["watchlist" | "reviews"], ...}`
+- Multi-match path returns `{kind: "needs-clarification", candidates}`
+- Direct lookup with `movieId` skips the search phase and returns `kind: "success"`
+- Errors return `{kind: "error", code, message}` with the appropriate code
+
+**AgentRun module** (Amendment C) — `services/agents/agent-run.test.ts` 🟢 (Vitest + PGLite or Testcontainers)
+- `start` creates a session if `threadId` absent; reuses if present
+- `start` persists user message + assistant message + tool calls in `onFinish`
+- `start` failure marks `agent_runs.status = "failed"` via `onError`
+- `resume` looks up pending tool call by `interruptId`; throws if not found
+- `resume` rejects double-submit when pending tool call already has output
+- `resume` for clarification interrupt re-invokes the tool with `movieId: response.pickedMovieId`
+- `resume` re-enters `streamText` and yields LLM continuation events post-resolution
+- `resume` records continuation against the same `agent_runs` row (no new run created)
+
+**Clarification interrupt translation** (Amendment B) — `services/agents/ag-ui-stream.test.ts` 🟡 (extend)
+- `tool-result` carrying `{kind: "needs-clarification", candidates}` emits no `TOOL_CALL_RESULT`; emits `RUN_FINISHED` with `result: { type: "interrupt", interrupts: [{...responseSchema, proposed: {candidates}}] }`
+- The `interrupt.id` matches the persisted `tool_calls.id` for the pending call
+- `responseSchema.properties.pickedMovieId.enum` matches the candidate ids in order
+
+**Domain collection primitive** (Amendment D) — `apps/web/src/hooks/use-domain-collection.test.ts` 🟢
+- Initial fetch populates state; failure leaves initialState
+- `refetch` replaces state from a fresh fetch
+- `mutate` applies `optimistic`, awaits `perform`, returns its value on success
+- `mutate` calls `rollback` on failure
+- `mutate` does **not** roll back if a newer mutation for the same key has fired in the meantime (counter rule)
+- Concurrent mutations on different keys do not interfere
+
+**Movie state aggregator** (Amendment D) — `apps/web/src/hooks/use-movie-state.test.tsx` 🟢
+- Returns `inWatchlist: true` when the id is present in `useWatchlist().state`
+- Returns `reviewRating` from `useReviews().state.get(movieId)`
+- `toggleWatchlist` calls add when absent, remove when present
+- `upsertReview` / `deleteReview` proxy with `movieId` bound
 
 **Demo fixtures** — `services/agents/demo-fixtures.test.ts` 🟢
 - Returns fixture for canonical prompt 1 (lowercased trim match)
@@ -453,10 +714,12 @@ Phases ordered by **B-risk** (derisk-first). End-of-phase verify gate must pass 
 - [ ] **Create `movie_night_plans` schema** — `packages/db/src/schema/movie-night-plans.ts` + barrel export
 - [ ] **Create `movie-night-plans` repository** — `packages/db/src/repositories/movie-night-plans.ts` + barrel export
 - [ ] **Extend `agent-sessions` repo with `getViewingPreferences`/`setViewingPreferences`/`applyPreferencesPatch`** — `packages/db/src/repositories/agent-sessions.ts`
+- [ ] **Add `findToolCallById` to `agent-runs` repo** (Amendment C) — `packages/db/src/repositories/agent-runs.ts`. Used by `agentRun.resume` to look up pending tool call by `interruptId`.
 - [ ] **Create A2UI protocol contracts** — `packages/contracts/src/a2ui/protocol.ts`
 - [ ] **Create catalog contract** — `packages/contracts/src/a2ui/catalog.ts`
 - [ ] **Create viewing-preferences contracts** — `packages/contracts/src/agent/viewing-preferences.ts`
-- [ ] **Create interrupts contracts** — `packages/contracts/src/agent/interrupts.ts`
+- [ ] **Create interrupts contracts** — `packages/contracts/src/agent/interrupts.ts` (includes `clarificationInterrupt` builder per Amendment B)
+- [ ] **Create mutation-outcome contracts** (Amendment A) — `packages/contracts/src/agent/mutation-outcome.ts`. Schemas: `mutationOutcomeSchema`, `wireMutationOutcomeSchema`, `domainKeySchema`, `mutationErrorCodeSchema`. Tests for discriminator parsing.
 - [ ] **Protocol shape spike** — confirm installed `@ag-ui/core` event fields (`RUN_FINISHED.result`, `STEP_*.stepName`) and update tests/types before feature work; if upgrading AG-UI to an `outcome` API, do it here and revise the plan in the same patch
 - [ ] **Interrupt resume contract** — define request wire format (`forwardedProps.interruptResponse` or explicit body field), server validation path, resume by `interruptId = tool_calls.id`, and double-submit rejection before Phase 3 UI work starts
 - [ ] **Memory seeding contract** — implement/test "load latest preferences before creating new session; seed created session" to prevent latest-empty-session memory loss
@@ -467,6 +730,22 @@ Phases ordered by **B-risk** (derisk-first). End-of-phase verify gate must pass 
 - [ ] **Generate + apply migration** — `pnpm db:generate && pnpm db:migrate`
 - [ ] **Verify**: typecheck passes; `pnpm --filter @repo/db test` passes
 
+### Phase 0.5 — Architecture deepenings (Mon week 1, ~1 day)
+
+Deepenings A + C land here so Phase 1+ builds on the new shapes. Amendments B, D, E thread through later phases as marked.
+
+- [ ] **(Amendment A) Apply `MutationOutcome` to mutation tools** — `apps/api/src/features/tools/{review-delete,watchlist-add,watchlist-remove}.ts` 🟡. Replace bespoke shapes with `{kind: "success" | "error" | "needs-clarification"}` returns. Each tool declares `affected: DomainKey[]` on success.
+- [ ] **(Amendment A) Mutation-tool tests** — assert each tool returns the new envelope variants. `mutation-outcome.test.ts` parser tests (Phase 0).
+- [ ] **(Amendment B) Clarification interrupt translation** — `apps/api/src/services/agents/ag-ui-stream.ts` 🟡: detect `{kind: "needs-clarification"}` on `tool-result`, persist pending tool call, emit `RUN_FINISHED { result: { type: "interrupt" } }`, stop. Test: golden trace for ambiguous-title prompt → asserts interrupt construction (no `TOOL_CALL_RESULT` for needs-clarification outputs).
+- [ ] **(Amendment C) Build `agentRun` module** — `apps/api/src/services/agents/agent-run.ts` 🟢 with `start` + `resume`. Extract `SYSTEM_PROMPT` to its own file. Persistence via `onFinish`; resume re-enters `streamText` with tool-result message injected. Tests: PGLite-backed integration tests at the `start | resume` interface.
+- [ ] **(Amendment C) Hard-cut old exports** — delete `runOrchestrator`, `runApprovedTool`, `buildApprovalStream`. Update `features/chat/route.ts` to ~40 lines using `agentRun`. Update `message-translator.ts`: rename `extractApprovalResponses` → `extractInterruptResponse`.
+- [ ] **(Amendment D) Build `useDomainCollection` primitive + `useMovieState` aggregator** — `apps/web/src/hooks/{use-domain-collection,use-movie-state}.ts` 🟢. Tests: optimistic + rollback + stale-counter handling at the primitive's interface; aggregator joins under provider wrapper.
+- [ ] **(Amendment D) Refactor existing contexts to use the primitive** — `apps/web/src/contexts/{watchlist,review}-context.tsx` 🟡. Existing tests should still pass without modification (interface-level behaviour preserved).
+- [ ] **(Amendment D) Build refetcher registry** — `apps/web/src/lib/domain-refetchers.ts` 🟢. Wire into `use-agent-chat.ts` to dispatch on `wireMutationOutcomeSchema` parse.
+- [ ] **(Amendment D) Migrate consuming components to `useMovieState`** — `apps/web/src/components/{movie-card,bookmark-icon,review-icon,review-modal}.tsx` 🟡. Existing component tests should pass.
+- [ ] **(Amendment D) Delete `chat-results-context.tsx` + remove the `toolResults` projection useEffect from `movie-search.tsx`** — `apps/web/src/contexts/chat-results-context.tsx` ❌, `apps/web/src/components/movie-search.tsx` 🟡. Replace with refetcher-registry dispatch.
+- [ ] **Verify**: typecheck, lint, all existing tests pass; `pnpm --filter @repo/api test` covers `agentRun.start | resume`; `pnpm --filter @repo/web test` covers `useDomainCollection`, `useMovieState`. No behavioural regression in the existing watchlist/review flows.
+
 ### Phase 1 — A2UI v0.9 protocol + UF1 (Mon-Tue week 1, ~1.5 days)
 
 - [ ] **JSON Pointer helper** — `apps/web/src/lib/a2ui/json-pointer.ts` + tests
@@ -475,7 +754,9 @@ Phases ordered by **B-risk** (derisk-first). End-of-phase verify gate must pass 
 - [ ] **`Column` and `Skeleton` renderers** — `apps/web/src/lib/a2ui/renderers/column.tsx`, `skeleton.tsx`
 - [ ] **`MovieFilterPanel` + `MovieGrid` renderers** — `apps/web/src/lib/a2ui/renderers/{movie-filter-panel,movie-grid}.tsx`
 - [ ] **Refactor `WatchlistGrid` and `ReviewsGrid` to read from bound paths** — `apps/web/src/lib/a2ui/renderers/{watchlist-grid,reviews-grid}.tsx`
-- [ ] **Refactor `A2UIRenderer` to dispatch protocol surfaces; preserve tagged-union path for `review-form`** — `apps/web/src/lib/a2ui/registry.tsx`
+- [ ] **Refactor `A2UIRenderer` to dispatch protocol surfaces only** (Amendment E supersedes the v1 "preserve tagged-union path for `review-form`" — every renderer including `review-form` goes through the protocol path) — `apps/web/src/lib/a2ui/registry.tsx`
+- [ ] **(Amendment E) Rename tool: `review_add` → `review_prefill`** — `apps/api/src/features/tools/review-add.ts` → `review-prefill.ts`; update tool registry key in `agentRun`'s toolset; update system prompt; update frontend dispatch to use `useA2UISurface("review-form")`.
+- [ ] **(Amendment E) Convert `review-form` renderer to A2UI-backed** — `apps/web/src/lib/a2ui/renderers/review-form.tsx` reads `movie`, `rating`, `text` from bound paths; tool emits `reviewFormMessages(...)` from a new emitter helper.
 - [ ] **A2UI emitter (server)** — `apps/api/src/services/agents/a2ui-emitter.ts` + tests
 - [ ] **Add `CUSTOM:a2ui` event emission with optional `DEMO_MODE_SLEEP`** — `apps/api/src/services/agents/ag-ui-stream.ts`
 - [ ] **Refactor `watchlist_show` to return `{ data, a2uiMessages }`** — `apps/api/src/features/tools/watchlist-show.ts`
@@ -504,10 +785,10 @@ Phases ordered by **B-risk** (derisk-first). End-of-phase verify gate must pass 
 - [ ] **Generalize `extractApprovalResponses` for any tool name + `editedReason`** — `apps/api/src/services/agents/message-translator.ts` + tests
 - [ ] **Emit `RUN_FINISHED { result: { type: "interrupt", ... } }` when stream ends with pending tool-approval-request** — `apps/api/src/services/agents/ag-ui-stream.ts` + tests (cover `commit_movie_night` AND `search_tmdb` regression)
 - [ ] **Build interrupt payload helpers** — `packages/contracts/src/agent/interrupts.ts` (already created in Phase 0; flesh out builders)
-- [ ] **Refactor `runApprovedTool` → `runResumedRun(interruptId, response)`; route `commit_movie_night` to `movieNightService.commit`** — `apps/api/src/services/agents/orchestrator.ts`; resume by pending `tool_calls.id`, validate response schema, reject double-submit, use `editedReason ?? proposed.reason`
+- [ ] ~~**Refactor `runApprovedTool` → `runResumedRun(...)`**~~ **Already landed in Phase 0.5 (Amendment C).** Resume lives on `agentRun.resume`. This phase only wires `commit_movie_night` into the per-tool merge logic in `agentRun.resume` (`{ ...pending.input, reason: response.editedReason ?? pending.input.reason }`) and routes the resolved invocation to `movieNightService.commit`.
 - [ ] **Movie-night service** — `apps/api/src/services/movie-night.ts`
 - [ ] **`commit_movie_night` tool with `needsApproval: true`** — `apps/api/src/features/tools/commit-movie-night.ts`
-- [ ] **Replace `buildApprovalStream` with generic `buildResumeStream`** — `apps/api/src/features/chat/route.ts`
+- [ ] ~~**Replace `buildApprovalStream` with generic `buildResumeStream`**~~ **Already landed in Phase 0.5 (Amendment C).** Both buildApprovalStream and buildResumeStream are deleted; the route uses `agentRun.resume` directly.
 - [ ] **Approval dialog (schema-driven)** — `apps/web/src/components/approval-dialog.tsx` + tests
 - [ ] **Replace `pendingApproval` with `pendingInterrupt` in `useAgentChat`; add `respondToInterrupt`** — `apps/web/src/hooks/use-agent-chat.ts`
 - [ ] **Show approval dialog from MovieSearch when `pendingInterrupt` is non-null** — `apps/web/src/components/movie-search.tsx`
@@ -608,7 +889,7 @@ Single `MovieSearch` component is the chat surface. `ChatResultsContext` project
 | `apps/api/src/features/tools/search-tmdb.ts` | TMDB search with `needsApproval: true` |
 | `apps/api/src/features/tools/watchlist-show.ts` | Returns `{ type: "watchlist-grid", items, count }` (tagged union) |
 | `apps/api/src/features/tools/review-show.ts` | Returns `{ type: "reviews-grid", items, count }` (tagged union) |
-| `apps/api/src/features/tools/review-add.ts` | Returns `{ type: "review-form", movie, rating, text? }` (tagged union; **stays as-is**) |
+| `apps/api/src/features/tools/review-add.ts` | (Amendment E) Renamed to `review-prefill.ts`; converted to surface-emitting `{data, a2uiMessages}` shape. |
 | `packages/db/src/schema/agent-sessions.ts` | Has unused `context` JSONB; `viewing_preferences` to be added |
 | `packages/db/src/repositories/agent-sessions.ts` | `findById`, `findLatestByUserId`, `updateContext` |
 | `packages/db/src/repositories/agent-runs.ts` | `findPendingToolCall`, `createRun`, `createToolCall`, etc. |
@@ -618,7 +899,7 @@ Single `MovieSearch` component is the chat surface. `ChatResultsContext` project
 | `apps/web/src/lib/a2ui/registry.tsx` | Tagged-union registry; dispatches by `surface.type` |
 | `apps/web/src/lib/a2ui/renderers/{watchlist-grid,review-form,reviews-grid}.tsx` | Current renderers — typed `data` prop |
 | `apps/web/src/components/movie-search.tsx` | Main UI; effect projects tool results into context |
-| `apps/web/src/contexts/chat-results-context.tsx` | `movies` / `a2uiSurface` / `clarification` state |
+| `apps/web/src/contexts/chat-results-context.tsx` | (Amendment D) **Deleted**. Clarification → interrupt; surface → A2UI store; `movies` already unused. |
 
 ---
 
@@ -638,7 +919,7 @@ Existing patterns to follow when implementing each element.
 ### AI SDK tools
 - Tool with Zod input + `needsApproval: true` + execute → `apps/api/src/features/tools/search-tmdb.ts` (model for `commit_movie_night`)
 - Tool returning a tagged-union surface → `apps/api/src/features/tools/watchlist-show.ts` (refactor target — adapt to return `{ data, a2uiMessages }`)
-- Tool with optional `movieId` shortcut + clarification fallback → `apps/api/src/features/tools/review-add.ts` (model for `discovery` when matching shortlists)
+- Tool with optional `movieId` shortcut + clarification fallback → `apps/api/src/features/tools/review-prefill.ts` (renamed from `review-add.ts` per Amendment E; model for `discovery` when matching shortlists). Note: post-Amendment A, the clarification "fallback" returns `{kind: "needs-clarification", candidates}` rather than the old `clarification_needed` shape.
 - Movies bulk lookup and richer filters are **not yet present** in `moviesRepository` — add ordered `findByIds(ids: string[])` plus `genres[]` / `maxRuntime` / `excludedGenres[]` search support as part of Phase 0 (used by `discovery` for comparison/night-plan views and memory-backed search)
 
 ### AG-UI server emission
@@ -672,7 +953,7 @@ Existing patterns to follow when implementing each element.
 ## 8. Notes
 
 - **A2UI v0.9 is a custom layer** carried inside AG-UI's `CUSTOM` event channel. There is no upstream A2UI client library — the protocol is implemented in this repo.
-- **`review-form` is intentionally kept tagged-union** as the "JSON maison" baseline for the talk's storytelling; do not migrate.
+- ~~**`review-form` is intentionally kept tagged-union**~~ **Withdrawn by Amendment E** (§1.5). All renderers — including `review-form` — go through the A2UI store. The talk's "JSON maison" baseline framing is replaced by the unified A2UI-protocol-everywhere story.
 - **Demo-mode flags must be off in production builds.** Add a startup log warning if `DEMO_MODE_FIXTURES=true` is detected outside `NODE_ENV !== "development"`.
 - **Token cost discipline**: the catalog description in `discovery`'s tool prompt (~500–800 tokens) is the single biggest prompt addition. If observed costs balloon, switch to lazy catalog descriptions (only the components valid for the current `view`).
 

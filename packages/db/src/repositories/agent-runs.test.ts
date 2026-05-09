@@ -64,4 +64,33 @@ describe("agentRunsRepository", () => {
     expect(completedRun.status).toBe("completed");
     expect(completedRun.completedAt).not.toBeNull();
   });
+
+  it("findToolCallById returns the row by id, including pending output", async () => {
+    const sessions = agentSessionsRepository(db);
+    const runs = agentRunsRepository(db);
+
+    const session = await sessions.create("user-find-tc");
+    const run = await runs.createRun({ sessionId: session.id });
+    const tc = await runs.createToolCall({
+      runId: run.id,
+      toolName: "review_delete",
+      input: { title: "Inception" },
+    });
+
+    const found = await runs.findToolCallById(tc.id);
+    expect(found).not.toBeNull();
+    expect(found!.id).toBe(tc.id);
+    expect(found!.toolName).toBe("review_delete");
+    expect(found!.input).toEqual({ title: "Inception" });
+    expect(found!.output).toBeNull();
+    expect(found!.runId).toBe(run.id);
+  });
+
+  it("findToolCallById returns null for unknown id", async () => {
+    const runs = agentRunsRepository(db);
+    const found = await runs.findToolCallById(
+      "00000000-0000-4000-8000-000000000000",
+    );
+    expect(found).toBeNull();
+  });
 });

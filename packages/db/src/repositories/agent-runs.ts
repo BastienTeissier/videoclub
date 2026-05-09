@@ -84,5 +84,19 @@ export function agentRunsRepository(db: Database) {
         .limit(1);
       return rows[0] ?? null;
     },
+
+    async findToolCallById(id: string) {
+      const [row] = await db
+        .select({
+          id: toolCalls.id,
+          toolName: toolCalls.toolName,
+          input: toolCalls.input,
+          output: toolCalls.output,
+          runId: toolCalls.runId,
+        })
+        .from(toolCalls)
+        .where(eq(toolCalls.id, id));
+      return row ?? null;
+    },
   };
 }

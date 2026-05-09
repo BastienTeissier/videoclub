@@ -26,3 +26,9 @@ export {
   type ListReviewRatingsResponse,
   type ListReviewsResponse,
 } from "./review.js";
+export {
+  movieNightPlanSchema,
+  listMovieNightPlansResponseSchema,
+  type MovieNightPlan,
+  type ListMovieNightPlansResponse,
+} from "./movie-night.js";

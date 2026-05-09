@@ -4,3 +4,4 @@ export { chatMessagesRepository } from "./chat-messages.js";
 export { agentRunsRepository } from "./agent-runs.js";
 export { watchlistRepository } from "./watchlist.js";
 export { reviewsRepository, type ReviewRow } from "./reviews.js";
+export { movieNightPlansRepository } from "./movie-night-plans.js";
