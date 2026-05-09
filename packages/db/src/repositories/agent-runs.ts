@@ -39,6 +39,7 @@ export function agentRunsRepository(db: Database) {
       runId: string;
       toolName: string;
       input: unknown;
+      aiSdkCallId?: string;
     }) {
       const [tc] = await db
         .insert(toolCalls)
@@ -46,6 +47,7 @@ export function agentRunsRepository(db: Database) {
           runId: data.runId,
           toolName: data.toolName,
           input: data.input,
+          aiSdkCallId: data.aiSdkCallId ?? null,
         })
         .returning();
       return tc!;
@@ -85,17 +87,18 @@ export function agentRunsRepository(db: Database) {
       return rows[0] ?? null;
     },
 
-    async findToolCallById(id: string) {
+    async findToolCallByAiSdkCallId(aiSdkCallId: string) {
       const [row] = await db
         .select({
           id: toolCalls.id,
+          aiSdkCallId: toolCalls.aiSdkCallId,
           toolName: toolCalls.toolName,
           input: toolCalls.input,
           output: toolCalls.output,
           runId: toolCalls.runId,
         })
         .from(toolCalls)
-        .where(eq(toolCalls.id, id));
+        .where(eq(toolCalls.aiSdkCallId, aiSdkCallId));
       return row ?? null;
     },
   };

@@ -65,7 +65,7 @@ describe("agentRunsRepository", () => {
     expect(completedRun.completedAt).not.toBeNull();
   });
 
-  it("findToolCallById returns the row by id, including pending output", async () => {
+  it("findToolCallByAiSdkCallId returns the row by AI SDK call id, including pending output", async () => {
     const sessions = agentSessionsRepository(db);
     const runs = agentRunsRepository(db);
 
@@ -75,22 +75,22 @@ describe("agentRunsRepository", () => {
       runId: run.id,
       toolName: "review_delete",
       input: { title: "Inception" },
+      aiSdkCallId: "call_abc123",
     });
 
-    const found = await runs.findToolCallById(tc.id);
+    const found = await runs.findToolCallByAiSdkCallId("call_abc123");
     expect(found).not.toBeNull();
     expect(found!.id).toBe(tc.id);
+    expect(found!.aiSdkCallId).toBe("call_abc123");
     expect(found!.toolName).toBe("review_delete");
     expect(found!.input).toEqual({ title: "Inception" });
     expect(found!.output).toBeNull();
     expect(found!.runId).toBe(run.id);
   });
 
-  it("findToolCallById returns null for unknown id", async () => {
+  it("findToolCallByAiSdkCallId returns null for unknown id", async () => {
     const runs = agentRunsRepository(db);
-    const found = await runs.findToolCallById(
-      "00000000-0000-4000-8000-000000000000",
-    );
+    const found = await runs.findToolCallByAiSdkCallId("call_does_not_exist");
     expect(found).toBeNull();
   });
 });

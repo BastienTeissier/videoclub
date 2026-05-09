@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, type FormEvent } from "react";
 import { Input, Button } from "@repo/ui";
 import {
   wireMutationOutcomeSchema,
+  clarificationProposedSchema,
   type DomainKey,
   type MovieDto,
 } from "@repo/contracts";
@@ -19,10 +20,11 @@ export function MovieSearch() {
   const {
     isLoading,
     error,
-    pendingApproval,
+    pendingInterrupt,
     toolResults,
     sendMessage,
-    approveToolCall,
+    respondToInterrupt,
+    cancelInterrupt,
   } = useAgentChat();
 
   const { refetch } = useWatchlist();
@@ -38,17 +40,13 @@ export function MovieSearch() {
   const watchlistSurface = useA2UISurface("watchlist");
   const reviewsSurface = useA2UISurface("reviews");
 
-  // Track previous toolResults to detect new results
   const prevToolResultsRef = useRef<typeof toolResults | null>(null);
 
-  // Project transient toolResults into persistent context for tagged-union surfaces
-  // (review-form) and side effects (clarification, watchlist refetch, reviews refetch).
-  // Discovery / watchlist_show / review_show now flow through the A2UI store via
-  // CUSTOM events, not through this projection.
-  //
-  // Mutation tools (review_delete, watchlist_add, watchlist_remove) return a
-  // MutationOutcome envelope: { kind: "success" | "error" | "needs-clarification", ... }.
-  // review_add still uses the legacy tagged-union shape until Amendment E.
+  // Project transient toolResults into context for tagged-union surfaces and
+  // refetch dispatch. After Amendment B, mutating tools no longer surface
+  // `needs-clarification` here — that's an interrupt now (handled below via
+  // `pendingInterrupt`). review_add still uses the legacy tagged-union shape
+  // until Amendment E.
   useEffect(() => {
     if (toolResults.length === 0) return;
     if (toolResults === prevToolResultsRef.current) return;
@@ -83,15 +81,13 @@ export function MovieSearch() {
         typeof tr.result === "object" &&
         "clarification_needed" in tr.result
       ) {
-        const result = tr.result as unknown as {
-          candidates: MovieDto[];
-        };
+        const result = tr.result as unknown as { candidates: MovieDto[] };
         setClarification({ action: "review", candidates: result.candidates });
         return;
       }
     }
 
-    // MutationOutcome envelope from review_delete, watchlist_add, watchlist_remove
+    // MutationOutcome envelope (success/error). Refetch on success.
     for (const tr of toolResults) {
       if (
         tr.toolName !== "review_delete" &&
@@ -101,43 +97,13 @@ export function MovieSearch() {
         continue;
       }
       const parsed = wireMutationOutcomeSchema.safeParse(tr.result);
-      if (parsed.success) {
-        if (parsed.data.kind === "success") {
-          for (const domain of parsed.data.affected) {
-            refetchersByDomain[domain]?.();
-          }
+      if (parsed.success && parsed.data.kind === "success") {
+        for (const domain of parsed.data.affected) {
+          refetchersByDomain[domain]?.();
         }
-        // errors are surfaced by the LLM's text reply; no UI state change here
-        continue;
-      }
-
-      // Server-only `needs-clarification` marker leaks through until the stream
-      // layer translates it into an interrupt (Amendment B). Project it into
-      // the existing clarification context as an interim.
-      const maybeClar = tr.result as
-        | { kind?: string; candidates?: MovieDto[] }
-        | null;
-      if (
-        maybeClar?.kind === "needs-clarification" &&
-        Array.isArray(maybeClar.candidates)
-      ) {
-        const action: "add" | "remove" | "review-delete" =
-          tr.toolName === "watchlist_add"
-            ? "add"
-            : tr.toolName === "watchlist_remove"
-              ? "remove"
-              : "review-delete";
-        setClarification({ action, candidates: maybeClar.candidates });
-        return;
       }
     }
-  }, [
-    toolResults,
-    setA2UISurface,
-    setClarification,
-    refetch,
-    refetchReviews,
-  ]);
+  }, [toolResults, setA2UISurface, setClarification, refetch, refetchReviews]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -146,7 +112,8 @@ export function MovieSearch() {
     setQuery("");
   }
 
-  function handleClarificationPick(movie: MovieDto) {
+  // Legacy clarification handler for review_add (drops when Amendment E lands).
+  function handleLegacyClarificationPick(movie: MovieDto) {
     const action = clarification!.action;
     const titleAndYear = `${movie.title}${movie.year ? ` (${movie.year})` : ""}`;
     let msg: string;
@@ -160,6 +127,34 @@ export function MovieSearch() {
     setClarification(null);
     sendMessage(msg);
   }
+
+  function handleInterruptClarificationPick(movie: MovieDto) {
+    if (!pendingInterrupt) return;
+    void respondToInterrupt(pendingInterrupt.id, { pickedMovieId: movie.id });
+  }
+
+  function handleInterruptApprove() {
+    if (!pendingInterrupt) return;
+    void respondToInterrupt(pendingInterrupt.id, { approved: true });
+  }
+
+  // Decode the clarification interrupt's `proposed` field into MovieDto[].
+  const interruptCandidates: MovieDto[] | null = (() => {
+    if (!pendingInterrupt || pendingInterrupt.reason !== "clarification") {
+      return null;
+    }
+    const parsed = clarificationProposedSchema.safeParse(
+      pendingInterrupt.proposed,
+    );
+    return parsed.success ? parsed.data.candidates : null;
+  })();
+
+  const showApprovalButton =
+    pendingInterrupt?.reason === "approval" &&
+    typeof pendingInterrupt.proposed === "object" &&
+    pendingInterrupt.proposed !== null &&
+    (pendingInterrupt.proposed as { toolName?: string }).toolName ===
+      "search_tmdb";
 
   const hasProtocolSurface =
     !!discoverySurface || !!watchlistSurface || !!reviewsSurface;
@@ -192,50 +187,71 @@ export function MovieSearch() {
         {isLoading &&
           !hasProtocolSurface &&
           !persistedA2UISurface &&
-          !clarification && (
+          !clarification &&
+          !pendingInterrupt && (
             <p className="text-sm text-muted">Thinking...</p>
           )}
 
-        {error && (
-          <p className="text-sm text-destructive">{error}</p>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        {showApprovalButton && (
+          <div className="mb-4">
+            <Button onClick={handleInterruptApprove} disabled={isLoading}>
+              Search TMDB for more results
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-2"
+              onClick={cancelInterrupt}
+              disabled={isLoading}
+            >
+              Cancel
+            </Button>
+          </div>
         )}
 
-        {pendingApproval &&
-          pendingApproval.toolName === "search_tmdb" && (
-            <div className="mb-4">
-              <Button
-                onClick={() => approveToolCall(pendingApproval.toolCallId)}
-                disabled={isLoading}
-              >
-                Search TMDB for more results
-              </Button>
-            </div>
-          )}
-
-        {clarification && (
+        {interruptCandidates && (
           <div className="mb-4">
-            <p className="text-sm text-muted mb-2">
-              Which movie did you mean?
-            </p>
+            <p className="text-sm text-muted mb-2">Which movie did you mean?</p>
             <div className="flex flex-wrap gap-2">
-              {clarification.candidates.map((movie) => (
+              {interruptCandidates.map((movie) => (
                 <Button
                   key={movie.id}
                   variant="outline"
                   size="sm"
-                  onClick={() => handleClarificationPick(movie)}
+                  onClick={() => handleInterruptClarificationPick(movie)}
                   disabled={isLoading}
                 >
-                  {movie.title}{movie.year ? ` (${movie.year})` : ""}
+                  {movie.title}
+                  {movie.year ? ` (${movie.year})` : ""}
                 </Button>
               ))}
             </div>
           </div>
         )}
 
-        {persistedA2UISurface && (
-          <A2UIRenderer surface={persistedA2UISurface} />
+        {clarification && (
+          <div className="mb-4">
+            <p className="text-sm text-muted mb-2">Which movie did you mean?</p>
+            <div className="flex flex-wrap gap-2">
+              {clarification.candidates.map((movie) => (
+                <Button
+                  key={movie.id}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleLegacyClarificationPick(movie)}
+                  disabled={isLoading}
+                >
+                  {movie.title}
+                  {movie.year ? ` (${movie.year})` : ""}
+                </Button>
+              ))}
+            </div>
+          </div>
         )}
+
+        {persistedA2UISurface && <A2UIRenderer surface={persistedA2UISurface} />}
 
         {discoverySurface && <A2UIRenderer surfaceId="discovery" />}
         {watchlistSurface && <A2UIRenderer surfaceId="watchlist" />}

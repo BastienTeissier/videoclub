@@ -92,7 +92,7 @@ describe("streamAgUiEvents", () => {
     expect(types).toContain("TOOL_CALL_RESULT");
   });
 
-  it("maps tool-approval-request to TOOL_CALL without RESULT", async () => {
+  it("tool-approval-request: emits TOOL_CALL_* without RESULT and attaches an approval interrupt to RUN_FINISHED", async () => {
     const parts: TextStreamPart<ToolSet>[] = [
       {
         type: "tool-call",
@@ -120,6 +120,84 @@ describe("streamAgUiEvents", () => {
     expect(types).toContain("TOOL_CALL_ARGS");
     expect(types).toContain("TOOL_CALL_END");
     expect(types).not.toContain("TOOL_CALL_RESULT");
+
+    const finished = events.find((e) => parseEventType(e) === "RUN_FINISHED");
+    expect(finished).toBeDefined();
+    expect(finished).toContain('"type":"interrupt"');
+    expect(finished).toContain('"reason":"approval"');
+    expect(finished).toContain('"id":"tc-1"');
+  });
+
+  it("needs-clarification tool-result: skips TOOL_CALL_RESULT and emits a clarification interrupt on RUN_FINISHED", async () => {
+    const candidates = [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        tmdbId: 1,
+        title: "Dune",
+        year: 1984,
+        synopsis: null,
+        genres: null,
+        cast: null,
+        directors: null,
+        runtime: null,
+        language: null,
+        posterUrl: null,
+        backdropUrl: null,
+        popularity: null,
+        releaseDate: null,
+        createdAt: "2020-01-01T00:00:00.000Z",
+        updatedAt: "2020-01-01T00:00:00.000Z",
+      },
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        tmdbId: 2,
+        title: "Dune",
+        year: 2021,
+        synopsis: null,
+        genres: null,
+        cast: null,
+        directors: null,
+        runtime: null,
+        language: null,
+        posterUrl: null,
+        backdropUrl: null,
+        popularity: null,
+        releaseDate: null,
+        createdAt: "2020-01-01T00:00:00.000Z",
+        updatedAt: "2020-01-01T00:00:00.000Z",
+      },
+    ];
+
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-clar",
+        toolName: "review_delete",
+        input: { title: "Dune" },
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-result",
+        toolCallId: "tc-clar",
+        toolName: "review_delete",
+        input: { title: "Dune" },
+        output: { kind: "needs-clarification", candidates },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), options);
+    const events = await collectEvents(stream);
+    const types = events.map(parseEventType);
+
+    expect(types).not.toContain("TOOL_CALL_RESULT");
+
+    const finished = events.find((e) => parseEventType(e) === "RUN_FINISHED");
+    expect(finished).toBeDefined();
+    expect(finished).toContain('"type":"interrupt"');
+    expect(finished).toContain('"reason":"clarification"');
+    expect(finished).toContain('"id":"tc-clar"');
+    // Candidate ids land in the responseSchema enum
+    expect(finished).toContain("11111111-1111-4111-8111-111111111111");
+    expect(finished).toContain("22222222-2222-4222-8222-222222222222");
   });
 
   it("emits one CUSTOM:a2ui per a2uiMessage in order, before TOOL_CALL_RESULT", async () => {

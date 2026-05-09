@@ -1,7 +1,12 @@
 import { EventEncoder } from "@ag-ui/encoder";
 import { EventType } from "@ag-ui/core";
 import type { TextStreamPart, ToolSet } from "ai";
-import type { A2UIMessage } from "@repo/contracts";
+import {
+  clarificationInterrupt,
+  type A2UIMessage,
+  type Interrupt,
+  type MovieDto,
+} from "@repo/contracts";
 
 interface StreamAgUiOptions {
   threadId: string;
@@ -34,15 +39,50 @@ function stripA2UIMessages(output: unknown): unknown {
   return rest;
 }
 
+function asNeedsClarification(
+  output: unknown,
+): { candidates: MovieDto[] } | null {
+  if (!output || typeof output !== "object") return null;
+  const o = output as { kind?: unknown; candidates?: unknown };
+  if (o.kind !== "needs-clarification") return null;
+  if (!Array.isArray(o.candidates)) return null;
+  return { candidates: o.candidates as MovieDto[] };
+}
+
+function approvalInterrupt(
+  toolCallId: string,
+  toolName: string,
+  input: unknown,
+): Interrupt {
+  return {
+    id: toolCallId,
+    reason: "approval",
+    message: `Approve calling ${toolName}?`,
+    proposed: { toolName, input },
+    responseSchema: {
+      type: "object",
+      properties: {
+        approved: { type: "boolean" },
+      },
+      required: ["approved"],
+    },
+  };
+}
+
 export async function* streamAgUiEvents(
   fullStream: AsyncIterable<TextStreamPart<ToolSet>>,
-  { threadId, runId }: StreamAgUiOptions
+  { threadId, runId }: StreamAgUiOptions,
 ): AsyncGenerator<string> {
   const encoder = new EventEncoder();
   let textStarted = false;
   let messageId = `msg-${runId}`;
 
-  // Emit RUN_STARTED
+  // Pending interrupts collected during iteration.
+  // - Clarification: detected on tool-result with kind: "needs-clarification".
+  //   We skip emitting TOOL_CALL_RESULT for that call.
+  // - Approval: detected on tool-approval-request (HITL).
+  const pendingInterrupts: Interrupt[] = [];
+
   yield encoder.encode({
     type: EventType.RUN_STARTED,
     threadId,
@@ -104,6 +144,15 @@ export async function* streamAgUiEvents(
         }
 
         case "tool-result": {
+          const clarification = asNeedsClarification(part.output);
+          if (clarification) {
+            pendingInterrupts.push(
+              clarificationInterrupt(part.toolCallId, clarification.candidates),
+            );
+            // Do NOT emit TOOL_CALL_RESULT; the marker is server-only.
+            break;
+          }
+
           const a2uiMessages = extractA2UIMessages(part.output);
           if (a2uiMessages) {
             const sleepMs = getDemoSleepMs();
@@ -129,15 +178,34 @@ export async function* streamAgUiEvents(
         case "tool-approval-request": {
           // AI SDK emits a `tool-call` event before `tool-approval-request`
           // for the same tool, so TOOL_CALL_START/ARGS/END are already sent.
-          // We intentionally emit nothing here — the absence of a
-          // TOOL_CALL_RESULT signals pending approval to the frontend.
+          // Build an approval interrupt to attach to RUN_FINISHED.
+          const tc = (part as unknown as {
+            toolCall?: {
+              toolCallId?: string;
+              toolName?: string;
+              args?: unknown;
+              input?: unknown;
+            };
+          }).toolCall;
+          if (tc?.toolCallId && tc.toolName) {
+            pendingInterrupts.push(
+              approvalInterrupt(
+                tc.toolCallId,
+                tc.toolName,
+                tc.input ?? tc.args ?? {},
+              ),
+            );
+          }
           break;
         }
 
         case "error": {
           yield encoder.encode({
             type: EventType.RUN_ERROR,
-            message: part.error instanceof Error ? part.error.message : String(part.error),
+            message:
+              part.error instanceof Error
+                ? part.error.message
+                : String(part.error),
           });
           return;
         }
@@ -156,12 +224,20 @@ export async function* streamAgUiEvents(
       });
     }
 
-    // Emit RUN_FINISHED
-    yield encoder.encode({
-      type: EventType.RUN_FINISHED,
-      threadId,
-      runId,
-    });
+    if (pendingInterrupts.length > 0) {
+      yield encoder.encode({
+        type: EventType.RUN_FINISHED,
+        threadId,
+        runId,
+        result: { type: "interrupt", interrupts: pendingInterrupts },
+      });
+    } else {
+      yield encoder.encode({
+        type: EventType.RUN_FINISHED,
+        threadId,
+        runId,
+      });
+    }
   } catch (error) {
     yield encoder.encode({
       type: EventType.RUN_ERROR,

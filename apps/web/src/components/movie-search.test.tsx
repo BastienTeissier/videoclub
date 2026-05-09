@@ -5,18 +5,26 @@ import { MovieSearch } from "./movie-search";
 import { applyMessage, clearAllSurfaces } from "@/lib/a2ui/store";
 
 const mockSendMessage = vi.fn();
-const mockApproveToolCall = vi.fn();
-const mockRejectToolCall = vi.fn();
+const mockRespondToInterrupt = vi.fn();
+const mockCancelInterrupt = vi.fn();
+
+interface PendingInterrupt {
+  id: string;
+  reason: string;
+  message: string;
+  proposed: unknown;
+  responseSchema: unknown;
+}
 
 const defaultHookReturn = {
   messages: [] as { id: string; role: string; content: string }[],
   isLoading: false,
   error: null as string | null,
-  pendingApproval: null as { toolCallId: string; toolName: string; args: Record<string, unknown> } | null,
+  pendingInterrupt: null as PendingInterrupt | null,
   toolResults: [] as { toolName: string; toolCallId: string; result: unknown }[],
   sendMessage: mockSendMessage,
-  approveToolCall: mockApproveToolCall,
-  rejectToolCall: mockRejectToolCall,
+  respondToInterrupt: mockRespondToInterrupt,
+  cancelInterrupt: mockCancelInterrupt,
 };
 
 let hookReturn = { ...defaultHookReturn };
@@ -122,13 +130,15 @@ describe("MovieSearch", () => {
     expect(mockSendMessage).toHaveBeenCalledWith("show my reviews");
   });
 
-  it("shows TMDB confirmation button when pendingApproval", () => {
+  it("shows TMDB confirmation button when pendingInterrupt is a search_tmdb approval", () => {
     hookReturn = {
       ...defaultHookReturn,
-      pendingApproval: {
-        toolCallId: "tc-1",
-        toolName: "search_tmdb",
-        args: { query: "Stalker" },
+      pendingInterrupt: {
+        id: "tc-1",
+        reason: "approval",
+        message: "Approve calling search_tmdb?",
+        proposed: { toolName: "search_tmdb", input: { query: "Stalker" } },
+        responseSchema: { type: "object" },
       },
     };
 
@@ -136,20 +146,24 @@ describe("MovieSearch", () => {
     expect(screen.getByText("Search TMDB for more results")).toBeInTheDocument();
   });
 
-  it("clicking confirm button calls approveToolCall", () => {
+  it("clicking confirm button calls respondToInterrupt with { approved: true }", () => {
     hookReturn = {
       ...defaultHookReturn,
-      pendingApproval: {
-        toolCallId: "tc-1",
-        toolName: "search_tmdb",
-        args: { query: "Stalker" },
+      pendingInterrupt: {
+        id: "tc-1",
+        reason: "approval",
+        message: "Approve calling search_tmdb?",
+        proposed: { toolName: "search_tmdb", input: { query: "Stalker" } },
+        responseSchema: { type: "object" },
       },
     };
 
     render(<MovieSearch />);
     fireEvent.click(screen.getByText("Search TMDB for more results"));
 
-    expect(mockApproveToolCall).toHaveBeenCalledWith("tc-1");
+    expect(mockRespondToInterrupt).toHaveBeenCalledWith("tc-1", {
+      approved: true,
+    });
   });
 
   it("hides button after approval completes", () => {
@@ -342,81 +356,67 @@ describe("MovieSearch", () => {
     expect(mockSetClarification).toHaveBeenCalledWith(null);
   });
 
-  it("review_delete needs-clarification envelope sets clarification with action=review-delete", () => {
+  it("clarification interrupt renders candidate buttons", () => {
     const candidates = [
-      fakeMovie({ id: "uuid-d1", title: "Dune", year: 1984 }),
-      fakeMovie({ id: "uuid-d2", title: "Dune", year: 2021 }),
+      fakeMovie({
+        id: "11111111-1111-4111-8111-111111111111",
+        title: "Dune",
+        year: 1984,
+      }),
+      fakeMovie({
+        id: "22222222-2222-4222-8222-222222222222",
+        title: "Dune",
+        year: 2021,
+      }),
     ];
 
     hookReturn = {
       ...defaultHookReturn,
-      toolResults: [
-        {
-          toolName: "review_delete",
-          toolCallId: "tc-1",
-          result: {
-            kind: "needs-clarification",
-            candidates,
-          },
-        },
-      ],
+      pendingInterrupt: {
+        id: "call_clar",
+        reason: "clarification",
+        message: "Which movie did you mean?",
+        proposed: { candidates },
+        responseSchema: { type: "object" },
+      },
     };
 
     render(<MovieSearch />);
-
-    expect(mockSetClarification).toHaveBeenCalledWith({
-      action: "review-delete",
-      candidates,
-    });
+    expect(screen.getByText("Which movie did you mean?")).toBeInTheDocument();
+    expect(screen.getByText("Dune (1984)")).toBeInTheDocument();
+    expect(screen.getByText("Dune (2021)")).toBeInTheDocument();
   });
 
-  it("watchlist_add needs-clarification envelope sets clarification with action=add", () => {
+  it("clicking a clarification candidate calls respondToInterrupt with pickedMovieId", () => {
     const candidates = [
-      fakeMovie({ id: "uuid-a1", title: "Arrival", year: 2016 }),
-      fakeMovie({ id: "uuid-a2", title: "Arrival 2", year: 2020 }),
+      fakeMovie({
+        id: "11111111-1111-4111-8111-111111111111",
+        title: "Dune",
+        year: 1984,
+      }),
+      fakeMovie({
+        id: "22222222-2222-4222-8222-222222222222",
+        title: "Dune",
+        year: 2021,
+      }),
     ];
 
     hookReturn = {
       ...defaultHookReturn,
-      toolResults: [
-        {
-          toolName: "watchlist_add",
-          toolCallId: "tc-1",
-          result: { kind: "needs-clarification", candidates },
-        },
-      ],
+      pendingInterrupt: {
+        id: "call_clar",
+        reason: "clarification",
+        message: "Which movie did you mean?",
+        proposed: { candidates },
+        responseSchema: { type: "object" },
+      },
     };
 
     render(<MovieSearch />);
+    fireEvent.click(screen.getByText("Dune (2021)"));
 
-    expect(mockSetClarification).toHaveBeenCalledWith({
-      action: "add",
-      candidates,
-    });
-  });
-
-  it("watchlist_remove needs-clarification envelope sets clarification with action=remove", () => {
-    const candidates = [
-      fakeMovie({ id: "uuid-r1", title: "Arrival", year: 2016 }),
-      fakeMovie({ id: "uuid-r2", title: "Arrival 2", year: 2020 }),
-    ];
-
-    hookReturn = {
-      ...defaultHookReturn,
-      toolResults: [
-        {
-          toolName: "watchlist_remove",
-          toolCallId: "tc-1",
-          result: { kind: "needs-clarification", candidates },
-        },
-      ],
-    };
-
-    render(<MovieSearch />);
-
-    expect(mockSetClarification).toHaveBeenCalledWith({
-      action: "remove",
-      candidates,
+    expect(mockRespondToInterrupt).toHaveBeenCalledWith("call_clar", {
+      pickedMovieId: "22222222-2222-4222-8222-222222222222",
     });
   });
 

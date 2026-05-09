@@ -36,6 +36,13 @@
       "when": 1778339847757,
       "tag": "0004_married_leopardon",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778341287066,
+      "tag": "0005_nebulous_talon",
+      "breakpoints": true
     }
   ]
 }
