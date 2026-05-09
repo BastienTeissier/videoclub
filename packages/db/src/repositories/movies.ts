@@ -1,6 +1,6 @@
 import type { Column } from "drizzle-orm";
-import { ilike, eq, and, or, desc, lte, sql, type SQL } from "drizzle-orm";
-import { movies, type NewMovie } from "../schema/movies.js";
+import { ilike, eq, and, or, desc, inArray, lte, sql, type SQL } from "drizzle-orm";
+import { movies, type Movie, type NewMovie } from "../schema/movies.js";
 import type { Database } from "../client/index.js";
 
 interface SearchStructuredParams {
@@ -38,6 +38,13 @@ export function moviesRepository(db: Database) {
         .select()
         .from(movies)
         .where(ilike(movies.title, `%${query}%`));
+    },
+
+    async findByIds(ids: string[]): Promise<Movie[]> {
+      if (ids.length === 0) return [];
+      const rows = await db.select().from(movies).where(inArray(movies.id, ids));
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      return ids.map((id) => byId.get(id)).filter((m): m is Movie => Boolean(m));
     },
 
     async searchStructured(params: SearchStructuredParams) {

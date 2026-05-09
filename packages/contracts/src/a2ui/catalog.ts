@@ -39,6 +39,18 @@ export const videoclubCatalog: ReadonlyArray<CatalogComponent> = [
     description:
       "Loading placeholder. Variants: 'movie-grid' (default 5 cards) or 'row'.",
   },
+  {
+    name: "MovieComparisonTable",
+    description:
+      "Comparison table over a movie shortlist (rows = movies, columns = criteria like runtime, year, director, genres). Reads /comparison (shortlistIds + criteria) and joins against /movies.",
+    bindablePaths: ["/comparison", "/movies"],
+  },
+  {
+    name: "MovieNightPlan",
+    description:
+      "Final movie-night recommendation: one picked movie, optional backups, free-text reason. Reads /plan (pickedMovieId + backupMovieIds + reason) and joins against /movies.",
+    bindablePaths: ["/plan", "/movies"],
+  },
 ];
 
 export function getCatalogPromptDescription(): string {

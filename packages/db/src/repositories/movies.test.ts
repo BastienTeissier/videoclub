@@ -182,6 +182,89 @@ describe("moviesRepository", () => {
     expect(results.some((m) => m.title === "The Conjuring")).toBe(false);
   });
 
+  it("findByIds preserves caller order", async () => {
+    const repo = moviesRepository(db);
+    const a = await repo.upsertFromTmdb({
+      tmdbId: 9001,
+      title: "Order A",
+      year: 2001,
+      genres: ["Drama"],
+      directors: ["A"],
+      cast: [],
+      popularity: 1,
+      synopsis: null,
+      runtime: 90,
+      language: null,
+      posterUrl: null,
+      backdropUrl: null,
+      releaseDate: null,
+    });
+    const b = await repo.upsertFromTmdb({
+      tmdbId: 9002,
+      title: "Order B",
+      year: 2002,
+      genres: ["Drama"],
+      directors: ["B"],
+      cast: [],
+      popularity: 2,
+      synopsis: null,
+      runtime: 90,
+      language: null,
+      posterUrl: null,
+      backdropUrl: null,
+      releaseDate: null,
+    });
+    const c = await repo.upsertFromTmdb({
+      tmdbId: 9003,
+      title: "Order C",
+      year: 2003,
+      genres: ["Drama"],
+      directors: ["C"],
+      cast: [],
+      popularity: 3,
+      synopsis: null,
+      runtime: 90,
+      language: null,
+      posterUrl: null,
+      backdropUrl: null,
+      releaseDate: null,
+    });
+
+    const result = await repo.findByIds([c.id, a.id, b.id]);
+    expect(result.map((m) => m.title)).toEqual(["Order C", "Order A", "Order B"]);
+  });
+
+  it("findByIds drops missing ids without throwing", async () => {
+    const repo = moviesRepository(db);
+    const a = await repo.upsertFromTmdb({
+      tmdbId: 9100,
+      title: "Existing",
+      year: 2010,
+      genres: ["Drama"],
+      directors: ["X"],
+      cast: [],
+      popularity: 1,
+      synopsis: null,
+      runtime: 90,
+      language: null,
+      posterUrl: null,
+      backdropUrl: null,
+      releaseDate: null,
+    });
+    const result = await repo.findByIds([
+      a.id,
+      "00000000-0000-0000-0000-000000000000",
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe(a.id);
+  });
+
+  it("findByIds with empty array returns empty without DB call", async () => {
+    const repo = moviesRepository(db);
+    const result = await repo.findByIds([]);
+    expect(result).toEqual([]);
+  });
+
   it("searchStructured with maxRuntime filters by runtime ceiling", async () => {
     const repo = moviesRepository(db);
 
