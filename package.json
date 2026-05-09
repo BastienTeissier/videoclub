@@ -12,6 +12,7 @@
     "sonar:up": "docker compose -f infra/docker/sonarqube.yaml up -d",
     "sonar:down": "docker compose -f infra/docker/sonarqube.yaml down",
     "sonar:scan": "sonar-scanner",
+    "hooks:install": "bash scripts/install-hooks.sh",
     "db:up": "docker compose -f infra/docker/compose.yaml --env-file infra/docker/.env up -d",
     "db:down": "docker compose -f infra/docker/compose.yaml --env-file infra/docker/.env down",
     "db:generate": "pnpm --filter @repo/db exec drizzle-kit generate",
