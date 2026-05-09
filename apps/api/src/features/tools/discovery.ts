@@ -70,110 +70,106 @@ Movie id format: shortlistMovieIds, pickedMovieId, and backupMovieIds MUST be va
 
       const repo = moviesRepository(db);
 
+      // view-specific failure: return a no-surface response so the LLM
+      // narrates the failure to the user via the text fallback in
+      // movie-search.tsx, instead of rendering a misleading popularity grid.
+      function viewFailure(reason: ToolWarning) {
+        warnings.push(reason);
+        return {
+          data: {
+            movies: [] as MovieDto[],
+            view: "none" as const,
+            requestedView,
+            fallbackReason: reason,
+          },
+          a2uiMessages: [],
+          warnings,
+        };
+      }
+
       if (effectiveView === "comparison") {
         const ids = input.shortlistMovieIds ?? [];
         if (ids.length < 2) {
-          warnings.push({ code: "comparison-too-few", count: ids.length });
-          effectiveView = "grid";
-        } else {
-          const rows = await repo.findByIds(ids);
-          const resolvedIds = new Set(rows.map((r) => r.id));
-          const unresolved = ids.filter((id) => !resolvedIds.has(id));
-          if (rows.length < 2) {
-            // Common cause: LLM passed tmdbId values instead of `id` UUIDs.
-            // Fall back to grid; warning surfaces the unresolved ids so the
-            // LLM can self-correct on the next turn (warnings are stripped
-            // from the wire, but data.error stays in TOOL_CALL_RESULT).
-            warnings.push({
-              code: "comparison-resolution-failed",
-              requestedCount: ids.length,
-              resolvedCount: rows.length,
-              unresolvedIds: unresolved,
-            });
-            effectiveView = "grid";
-          } else {
-            const movies: MovieDto[] = rows.map(movieToDto);
-            return {
-              data: {
-                movies,
-                view: "comparison" as const,
-                requestedView,
-                shortlistMovieIds: ids,
-                comparisonCriteria: input.comparisonCriteria ?? [],
-                ...(unresolved.length
-                  ? { unresolvedIds: unresolved }
-                  : {}),
-              },
-              a2uiMessages: discoveryComparisonMessages({
-                surfaceId: SURFACE_ID,
-                movies,
-                shortlistIds: rows.map((r) => r.id),
-                criteria: input.comparisonCriteria,
-              }),
-              ...(warnings.length ? { warnings } : {}),
-            };
-          }
+          return viewFailure({ code: "comparison-too-few", count: ids.length });
         }
+        const rows = await repo.findByIds(ids);
+        const resolvedIds = new Set(rows.map((r) => r.id));
+        const unresolved = ids.filter((id) => !resolvedIds.has(id));
+        if (rows.length < 2) {
+          // Common cause: LLM passed tmdbId values instead of `id` UUIDs.
+          return viewFailure({
+            code: "comparison-resolution-failed",
+            requestedCount: ids.length,
+            resolvedCount: rows.length,
+            unresolvedIds: unresolved,
+          });
+        }
+        const movies: MovieDto[] = rows.map(movieToDto);
+        return {
+          data: {
+            movies,
+            view: "comparison" as const,
+            requestedView,
+            shortlistMovieIds: ids,
+            comparisonCriteria: input.comparisonCriteria ?? [],
+            ...(unresolved.length ? { unresolvedIds: unresolved } : {}),
+          },
+          a2uiMessages: discoveryComparisonMessages({
+            surfaceId: SURFACE_ID,
+            movies,
+            shortlistIds: rows.map((r) => r.id),
+            criteria: input.comparisonCriteria,
+          }),
+          ...(warnings.length ? { warnings } : {}),
+        };
       }
 
       if (effectiveView === "night-plan") {
         const pickedId = input.pickedMovieId;
         if (!pickedId) {
-          warnings.push({ code: "night-plan-incomplete" });
-          effectiveView = "grid";
-        } else {
-          const ids = [pickedId, ...(input.backupMovieIds ?? [])];
-          const rows = await repo.findByIds(ids);
-          const picked = rows.find((r) => r.id === pickedId);
-          if (!picked) {
-            warnings.push({
-              code: "night-plan-unknown-pick",
-              pickedMovieId: pickedId,
-            });
-            effectiveView = "grid";
-          } else {
-            const movies: MovieDto[] = rows.map(movieToDto);
-            return {
-              data: {
-                movies,
-                view: "night-plan" as const,
-                requestedView,
-                pickedMovieId: pickedId,
-                backupMovieIds: input.backupMovieIds ?? [],
-                reason: input.reason ?? null,
-              },
-              a2uiMessages: discoveryNightPlanMessages({
-                surfaceId: SURFACE_ID,
-                movies,
-                pickedMovieId: pickedId,
-                backupMovieIds: input.backupMovieIds,
-                reason: input.reason,
-              }),
-              ...(warnings.length ? { warnings } : {}),
-            };
-          }
+          return viewFailure({ code: "night-plan-incomplete" });
         }
+        const ids = [pickedId, ...(input.backupMovieIds ?? [])];
+        const rows = await repo.findByIds(ids);
+        const picked = rows.find((r) => r.id === pickedId);
+        if (!picked) {
+          return viewFailure({
+            code: "night-plan-unknown-pick",
+            pickedMovieId: pickedId,
+          });
+        }
+        const movies: MovieDto[] = rows.map(movieToDto);
+        return {
+          data: {
+            movies,
+            view: "night-plan" as const,
+            requestedView,
+            pickedMovieId: pickedId,
+            backupMovieIds: input.backupMovieIds ?? [],
+            reason: input.reason ?? null,
+          },
+          a2uiMessages: discoveryNightPlanMessages({
+            surfaceId: SURFACE_ID,
+            movies,
+            pickedMovieId: pickedId,
+            backupMovieIds: input.backupMovieIds,
+            reason: input.reason,
+          }),
+          ...(warnings.length ? { warnings } : {}),
+        };
       }
 
-      // Fallback / default: grid
+      // Default / invalid-view fallback: actual grid search with user's filters.
       const filters = input.filters ?? {};
       const { moods: _moods, ...dbFilters } = filters;
       const rows = await searchMoviesData(db, dbFilters);
       const movies: MovieDto[] = rows.map(movieToDto);
-      // Surface the most-recent fallback warning inside `data` (warnings are
-      // stripped from the wire) so the LLM can narrate why the requested
-      // view was rejected and self-correct on the next turn.
-      const fallbackWarning =
-        requestedView !== "grid" && warnings.length > 0
-          ? warnings[warnings.length - 1]
-          : null;
       return {
         data: {
           movies,
           filters,
           view: "grid" as const,
           requestedView,
-          ...(fallbackWarning ? { fallbackReason: fallbackWarning } : {}),
         },
         a2uiMessages: discoveryGridMessages({
           surfaceId: SURFACE_ID,

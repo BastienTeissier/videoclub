@@ -148,40 +148,48 @@ describe("discovery tool", () => {
     expect(result.a2uiMessages).toHaveLength(4);
   });
 
-  it("view=comparison with <2 ids falls back to grid + comparison-too-few warning", async () => {
-    searchStructured.mockResolvedValueOnce([]);
+  it("view=comparison with <2 ids returns no surface (view=none) + comparison-too-few warning", async () => {
     const result = (await execTool({
       view: "comparison",
       shortlistMovieIds: ["only-one"],
     })) as {
-      data: { view: string; requestedView: string };
+      data: { view: string; requestedView: string; movies: unknown[]; fallbackReason: { code: string } };
+      a2uiMessages: unknown[];
       warnings: Array<{ code: string; count?: number }>;
     };
-    expect(result.data.view).toBe("grid");
+    expect(result.data.view).toBe("none");
     expect(result.data.requestedView).toBe("comparison");
+    expect(result.data.movies).toEqual([]);
+    expect(result.a2uiMessages).toEqual([]);
+    expect(result.data.fallbackReason.code).toBe("comparison-too-few");
     expect(result.warnings[0]!.code).toBe("comparison-too-few");
     expect(result.warnings[0]!.count).toBe(1);
     expect(findByIds).not.toHaveBeenCalled();
+    expect(searchStructured).not.toHaveBeenCalled();
   });
 
-  it("view=comparison falls back to grid + comparison-resolution-failed when fewer than 2 ids resolve", async () => {
+  it("view=comparison returns no surface when fewer than 2 ids resolve", async () => {
     // Simulates the LLM passing tmdbId values (or other unrelated strings)
     // that don't match any UUID in the movies table.
     findByIds.mockResolvedValueOnce([]); // none of the ids resolve
-    searchStructured.mockResolvedValueOnce([]);
     const result = (await execTool({
       view: "comparison",
       shortlistMovieIds: ["27205", "100", "200"],
     })) as {
-      data: { view: string; requestedView: string; fallbackReason?: { code: string; unresolvedIds?: string[] } };
+      data: { view: string; requestedView: string; movies: unknown[]; fallbackReason: { code: string; unresolvedIds?: string[] } };
+      a2uiMessages: unknown[];
       warnings: Array<{ code: string; resolvedCount?: number; unresolvedIds?: string[] }>;
     };
-    expect(result.data.view).toBe("grid");
+    expect(result.data.view).toBe("none");
     expect(result.data.requestedView).toBe("comparison");
+    expect(result.data.movies).toEqual([]);
+    expect(result.a2uiMessages).toEqual([]);
     expect(result.warnings[0]!.code).toBe("comparison-resolution-failed");
     expect(result.warnings[0]!.resolvedCount).toBe(0);
     expect(result.warnings[0]!.unresolvedIds).toEqual(["27205", "100", "200"]);
-    expect(result.data.fallbackReason?.code).toBe("comparison-resolution-failed");
+    expect(result.data.fallbackReason.code).toBe("comparison-resolution-failed");
+    // Critical: never trigger an unrelated grid search on view-failure paths.
+    expect(searchStructured).not.toHaveBeenCalled();
   });
 
   it("view=comparison renders partial shortlist when some ids resolve and some don't (>=2 resolved)", async () => {
@@ -226,29 +234,34 @@ describe("discovery tool", () => {
     expect(result.a2uiMessages).toHaveLength(4);
   });
 
-  it("view=night-plan without pickedMovieId falls back to grid + night-plan-incomplete warning", async () => {
-    searchStructured.mockResolvedValueOnce([]);
+  it("view=night-plan without pickedMovieId returns no surface + night-plan-incomplete warning", async () => {
     const result = (await execTool({ view: "night-plan" })) as {
-      data: { view: string };
+      data: { view: string; fallbackReason: { code: string } };
+      a2uiMessages: unknown[];
       warnings: Array<{ code: string }>;
     };
-    expect(result.data.view).toBe("grid");
+    expect(result.data.view).toBe("none");
+    expect(result.a2uiMessages).toEqual([]);
     expect(result.warnings[0]!.code).toBe("night-plan-incomplete");
+    expect(result.data.fallbackReason.code).toBe("night-plan-incomplete");
+    expect(searchStructured).not.toHaveBeenCalled();
   });
 
-  it("view=night-plan with unknown picked id falls back to grid + night-plan-unknown-pick warning", async () => {
+  it("view=night-plan with unknown picked id returns no surface + night-plan-unknown-pick warning", async () => {
     findByIds.mockResolvedValueOnce([makeRow("id-b", "Backup")]);
-    searchStructured.mockResolvedValueOnce([]);
     const result = (await execTool({
       view: "night-plan",
       pickedMovieId: "missing",
       backupMovieIds: ["id-b"],
     })) as {
       data: { view: string };
+      a2uiMessages: unknown[];
       warnings: Array<{ code: string }>;
     };
-    expect(result.data.view).toBe("grid");
+    expect(result.data.view).toBe("none");
+    expect(result.a2uiMessages).toEqual([]);
     expect(result.warnings[0]!.code).toBe("night-plan-unknown-pick");
+    expect(searchStructured).not.toHaveBeenCalled();
   });
 
   it("description includes catalog component names", () => {
