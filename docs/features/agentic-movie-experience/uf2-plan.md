@@ -547,18 +547,55 @@ System-prompt restructure: CONTEXT-ANCHOR rule first, then VIEW SELECTION, then 
 
 **Outcome**: no measurable behavior change in browser testing. Confirms the issue is at the model-attention layer, not the rule-priority layer.
 
-### Round 2 (shipped) — watchlist pivot (Plan C)
+### Round 2 — watchlist pivot (Plan C)
 
 Demo path becomes `watchlist_show → discovery view=comparison/night-plan`:
 
 - Different first tool (no filter params on `watchlist_show` → no misfire pattern).
-- Different surface ids — watchlist + comparison render side-by-side, no overwrite.
+- Different surface ids — watchlist + comparison render co-existing, no overwrite.
 - Real, motivated user flow — not a contrived demo prompt.
 
-Code changes: prompt-only.
+The pivot landed in three iterations as browser testing surfaced model and UI gaps.
 
-- `apps/api/src/services/agents/system-prompt.ts`: CONTEXT-ANCHOR broadened to "any prior tool result that listed movies — `discovery`, `watchlist_show`, or `review_show`".
-- `apps/api/src/features/tools/discovery.ts`: tool description mirrors the broadened source list.
+#### Iteration 1: source broadening (commit `d925733`)
+
+Prompt-only — open the comparison/night-plan path to non-discovery sources.
+
+- `apps/api/src/services/agents/system-prompt.ts`: CONTEXT-ANCHOR rule broadened to "the most recent tool result that listed movies — `discovery`, `watchlist_show`, or `review_show`".
+- `apps/api/src/features/tools/discovery.ts`: tool description and `Movie id format` line mirror the broadened source list.
+
+**Outcome**: enabled the path in principle but didn't actually fire — see iteration 2.
+
+#### Iteration 2: multi-tool chaining (commit `2bfbbcd`)
+
+**Symptom**: `compare the top 3 in my watchlist by runtime` only rendered the watchlist. The model called `watchlist_show`, treated the surface as fulfilling the request, and stopped — never chained into `discovery view=comparison`.
+
+**Root cause**: same model-attention class as round 1, but on a different tool boundary. The noun "watchlist" cued `watchlist_show` so strongly that the comparison verb was lost. The CONTEXT-ANCHOR rule never fired because the model wasn't routing to discovery at all.
+
+**Fix** — explicit two-step pattern:
+
+- `apps/api/src/services/agents/system-prompt.ts`: prepended a **MULTI-STEP INTENTS** rule before CONTEXT-ANCHOR, framing "compare/pick X in my watchlist" (or reviews) as a TWO-step plan within ONE turn — `watchlist_show` first, then immediately `discovery view=comparison/night-plan` with IDs from the result. Explicitly: "Do NOT stop after step 1. The user wants the comparison/pick, not the list." If a prior list result already exists in conversation, skip step 1.
+- `apps/api/src/features/tools/watchlist-show.ts`: tool description reinforces "Use ONLY when the user wants to see/browse the watchlist itself. If the user wants to COMPARE or PICK from their watchlist … chain into the `discovery` tool with view='comparison' or view='night-plan' in the same turn."
+- `apps/api/src/features/tools/review-show.ts`: same guard for reviews symmetry.
+
+**Outcome**: chain now fires reliably — `TOOL_CALL_START` event sequence is `watchlist_show` then `discovery view=comparison` in the same run.
+
+#### Iteration 3: responsive surface layout (commit `23296cc`)
+
+**Symptom**: with both `watchlist` and `discovery` (comparison) surfaces emitting in the same turn, the UI stacked them vertically inside the existing `max-w-2xl` (672 px) container. Read as "two grids piled on top of each other" — the comparison was buried below 10 watchlist cards.
+
+**Fix** — `apps/web/src/components/movie-search.tsx`:
+
+- Compute `surfaceIds` array of visible non-form surfaces (`discovery`, `watchlist`, `reviews` — order matters: discovery first goes into the primary slot).
+- When `surfaceIds.length > 1`: outer container expands to `max-w-6xl`; surfaces lay out via CSS grid `lg:grid-cols-[3fr_2fr] gap-4` (comparison primary at ~60%, watchlist secondary at ~40%).
+- When `surfaceIds.length <= 1`: container stays at `max-w-2xl` (single-surface focused look unchanged).
+- Form + quick-action buttons wrapped in an inner `max-w-2xl mx-auto` so they don't stretch when the outer widens.
+- Below the `lg` breakpoint (1024 px): grid collapses to a single column; comparison renders first (most-recent answer leads).
+- `review-form` keeps its own slot below the multi-surface block (modal-ish behavior preserved).
+
+No renderer changes — surfaces are width-fluid via Tailwind grid utilities.
+
+**Verification**: 103/103 web tests still pass (`movie-search.test.tsx` doesn't assert on container widths).
 
 See updated `uf2-adaptive-view-layout.md` ("Demo flow & LLM-behavior caveat") for the demo script.
 
