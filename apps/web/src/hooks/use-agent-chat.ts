@@ -6,10 +6,11 @@ import { createAgentClient } from "@/lib/ag-ui/client";
 import { applyMessage, clearAllSurfaces } from "@/lib/a2ui/store";
 import { useMemoryContext } from "@/contexts/memory-context";
 import {
+  a2uiMessageSchema,
   interruptRunFinishedResultSchema,
-  type A2UIMessage,
+  jsonPatchOpsSchema,
+  viewingPreferencesSchema,
   type Interrupt,
-  type ViewingPreferences,
 } from "@repo/contracts";
 import type { HttpAgent, Message } from "@ag-ui/client";
 
@@ -79,7 +80,9 @@ export function useAgentChat() {
 
       onCustomEvent({ event }) {
         if (event.name === "a2ui") {
-          applyMessage(event.value as A2UIMessage);
+          const parsed = a2uiMessageSchema.safeParse(event.value);
+          if (parsed.success) applyMessage(parsed.data);
+          else console.warn("[use-agent-chat] dropped invalid a2ui event", parsed.error);
           return;
         }
         if (event.name === "memory-applied") {
@@ -95,15 +98,17 @@ export function useAgentChat() {
       },
 
       onStateSnapshotEvent({ event }) {
-        const snapshot = (event as { snapshot?: unknown }).snapshot;
-        memory.applySnapshot((snapshot ?? {}) as ViewingPreferences);
+        const raw = (event as { snapshot?: unknown }).snapshot;
+        const parsed = viewingPreferencesSchema.safeParse(raw ?? {});
+        if (parsed.success) memory.applySnapshot(parsed.data);
+        else console.warn("[use-agent-chat] dropped invalid STATE_SNAPSHOT", parsed.error);
       },
 
       onStateDeltaEvent({ event }) {
-        const delta = (event as { delta?: unknown }).delta;
-        if (Array.isArray(delta)) {
-          memory.applyDelta(delta as Operation[]);
-        }
+        const raw = (event as { delta?: unknown }).delta;
+        const parsed = jsonPatchOpsSchema.safeParse(raw);
+        if (parsed.success) memory.applyDelta(parsed.data as Operation[]);
+        else console.warn("[use-agent-chat] dropped invalid STATE_DELTA", parsed.error);
       },
 
       onToolCallEndEvent({ event, toolCallName }) {

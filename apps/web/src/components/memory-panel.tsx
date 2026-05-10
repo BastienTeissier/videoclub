@@ -1,9 +1,11 @@
 "use client";
 
 import { cn } from "@repo/ui";
+import { NOTES_MAX } from "@repo/contracts";
 import { useMemoryContext } from "@/contexts/memory-context";
 
-const NOTES_DISPLAY_CAP = 8;
+const FLASH_CLASS =
+  "bg-commitment/15 ring-1 ring-commitment/40";
 
 export function MemoryPanel() {
   const { snapshot, flashingKeys } = useMemoryContext();
@@ -40,20 +42,17 @@ export function MemoryPanel() {
           </Row>
           <div
             className={cn(
-              "rounded px-2 py-1 transition-colors",
-              flashingKeys.has("notes") && "bg-amber-100",
+              "rounded-md px-2 py-1 transition-colors",
+              flashingKeys.has("notes") && FLASH_CLASS,
             )}
           >
             <dt className="text-xs font-medium text-muted-foreground">Notes</dt>
             <dd>
               {snapshot.notes?.length ? (
-                <ul className="mt-1 list-disc space-y-0.5 pl-4">
-                  {snapshot.notes
-                    .slice(-NOTES_DISPLAY_CAP)
-                    .reverse()
-                    .map((n, i) => (
-                      <li key={i}>{n}</li>
-                    ))}
+                <ul className="mt-1 flex list-disc flex-col-reverse space-y-0.5 space-y-reverse pl-4">
+                  {snapshot.notes.slice(-NOTES_MAX).map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
                 </ul>
               ) : (
                 "—"
@@ -80,8 +79,8 @@ function Row({
   return (
     <div
       className={cn(
-        "rounded px-2 py-1 transition-colors",
-        flashing.has(keyName) && "bg-amber-100",
+        "rounded-md px-2 py-1 transition-colors",
+        flashing.has(keyName) && FLASH_CLASS,
       )}
     >
       <dt className="text-xs font-medium text-muted-foreground">{label}</dt>

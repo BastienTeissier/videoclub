@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -28,9 +29,26 @@ export function MemoryProvider({ children }: { children: React.ReactNode }) {
   const [flashingKeys, setFlashingKeys] = useState<ReadonlySet<string>>(
     new Set(),
   );
-  const flashTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map(),
-  );
+  const flashTimersRef = useRef<Map<
+    string,
+    ReturnType<typeof setTimeout>
+  > | null>(null);
+
+  function getFlashTimers(): Map<string, ReturnType<typeof setTimeout>> {
+    if (flashTimersRef.current === null) {
+      flashTimersRef.current = new Map();
+    }
+    return flashTimersRef.current;
+  }
+
+  useEffect(() => {
+    return () => {
+      const timers = flashTimersRef.current;
+      if (!timers) return;
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
 
   const flash = useCallback((keys: string[]) => {
     if (keys.length === 0) return;
@@ -39,10 +57,11 @@ export function MemoryProvider({ children }: { children: React.ReactNode }) {
       for (const k of keys) next.add(k);
       return next;
     });
+    const timers = getFlashTimers();
     for (const k of keys) {
-      const existing = flashTimers.current.get(k);
+      const existing = timers.get(k);
       if (existing) clearTimeout(existing);
-      flashTimers.current.set(
+      timers.set(
         k,
         setTimeout(() => {
           setFlashingKeys((prev) => {
@@ -51,7 +70,7 @@ export function MemoryProvider({ children }: { children: React.ReactNode }) {
             next.delete(k);
             return next;
           });
-          flashTimers.current.delete(k);
+          timers.delete(k);
         }, FLASH_MS),
       );
     }

@@ -114,4 +114,22 @@ describe("MemoryContext", () => {
       /useMemoryContext must be used inside MemoryProvider/,
     );
   });
+
+  it("unmount clears pending flash timers and avoids late setState", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result, unmount } = renderHook(() => useMemoryContext(), {
+      wrapper,
+    });
+
+    act(() => {
+      result.current.markApplied(["genres"]);
+    });
+    unmount();
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
 });
