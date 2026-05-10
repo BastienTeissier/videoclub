@@ -1,5 +1,6 @@
 import {
   VIDEOCLUB_CATALOG_ID,
+  SURFACE_IDS,
   createSurface,
   updateComponents,
   updateDataModel,
@@ -68,7 +69,7 @@ function rootColumn(childIds: string[]): ComponentNode {
 }
 
 export function discoveryGridMessages({
-  surfaceId = "discovery",
+  surfaceId = SURFACE_IDS.discovery,
   filters,
   movies,
 }: {
@@ -108,7 +109,7 @@ export function discoveryGridMessages({
 }
 
 export function discoveryComparisonMessages({
-  surfaceId = "discovery",
+  surfaceId = SURFACE_IDS.discovery,
   movies,
   shortlistIds,
   criteria,
@@ -137,7 +138,7 @@ export function discoveryComparisonMessages({
 }
 
 export function discoveryNightPlanMessages({
-  surfaceId = "discovery",
+  surfaceId = SURFACE_IDS.discovery,
   movies,
   pickedMovieId,
   backupMovieIds,
@@ -207,7 +208,7 @@ function gridStateValue<T>(
 }
 
 export function watchlistGridMessages({
-  surfaceId = "watchlist",
+  surfaceId = SURFACE_IDS.watchlist,
   items,
   message,
   error,
@@ -227,7 +228,7 @@ export function watchlistGridMessages({
 }
 
 export function reviewFormSurfaceMessages({
-  surfaceId = "review-form",
+  surfaceId = SURFACE_IDS.reviewForm,
   movie,
   rating,
   text,
@@ -243,7 +244,7 @@ export function reviewFormSurfaceMessages({
 }
 
 export function reviewsGridMessages({
-  surfaceId = "reviews",
+  surfaceId = SURFACE_IDS.reviews,
   items,
   message,
   error,

@@ -1,6 +1,10 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { getCatalogPromptDescription, type MovieDto } from "@repo/contracts";
+import {
+  getCatalogPromptDescription,
+  SURFACE_IDS,
+  type MovieDto,
+} from "@repo/contracts";
 import { moviesRepository, type Database } from "@repo/db";
 import { searchMoviesData } from "./search-movies.js";
 import { movieToDto } from "./movie-to-dto.js";
@@ -27,7 +31,7 @@ const discoveryFiltersSchema = z.object({
 });
 
 const VALID_VIEWS = ["grid", "comparison", "night-plan"] as const;
-const SURFACE_ID = "discovery";
+const SURFACE_ID = SURFACE_IDS.discovery;
 
 type WarningCode =
   | "invalid-view"

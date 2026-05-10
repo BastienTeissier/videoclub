@@ -1,5 +1,16 @@
 export const VIDEOCLUB_CATALOG_ID = "videoclub" as const;
 
+// Stable surface ids shared between the agent (which emits surfaces) and the
+// frontend (which subscribes to them). Renaming a value here is the only
+// place a rename can happen — both ends import these constants.
+export const SURFACE_IDS = {
+  discovery: "discovery",
+  watchlist: "watchlist",
+  reviews: "reviews",
+  reviewForm: "review-form",
+} as const;
+export type SurfaceId = (typeof SURFACE_IDS)[keyof typeof SURFACE_IDS];
+
 export interface CatalogComponent {
   name: string;
   description: string;

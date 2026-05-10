@@ -30,7 +30,9 @@ export {
 } from "./protocol";
 export {
   VIDEOCLUB_CATALOG_ID,
+  SURFACE_IDS,
   videoclubCatalog,
   getCatalogPromptDescription,
   type CatalogComponent,
+  type SurfaceId,
 } from "./catalog";

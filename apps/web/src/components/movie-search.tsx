@@ -5,7 +5,9 @@ import { Input, Button } from "@repo/ui";
 import {
   wireMutationOutcomeSchema,
   clarificationProposedSchema,
+  SURFACE_IDS,
   type MovieDto,
+  type SurfaceId,
 } from "@repo/contracts";
 import { useAgentChat } from "@/hooks/use-agent-chat";
 import { useDomainRefetchers } from "@/lib/domain-refetchers";
@@ -27,10 +29,10 @@ export function MovieSearch() {
 
   const refetchers = useDomainRefetchers();
 
-  const discoverySurface = useA2UISurface("discovery");
-  const watchlistSurface = useA2UISurface("watchlist");
-  const reviewsSurface = useA2UISurface("reviews");
-  const reviewFormSurface = useA2UISurface("review-form");
+  const discoverySurface = useA2UISurface(SURFACE_IDS.discovery);
+  const watchlistSurface = useA2UISurface(SURFACE_IDS.watchlist);
+  const reviewsSurface = useA2UISurface(SURFACE_IDS.reviews);
+  const reviewFormSurface = useA2UISurface(SURFACE_IDS.reviewForm);
 
   const prevToolResultsRef = useRef<typeof toolResults | null>(null);
 
@@ -111,10 +113,10 @@ export function MovieSearch() {
       })()
     : null;
 
-  const surfaceIds = [
-    ...(discoverySurface ? (["discovery"] as const) : []),
-    ...(watchlistSurface ? (["watchlist"] as const) : []),
-    ...(reviewsSurface ? (["reviews"] as const) : []),
+  const surfaceIds: SurfaceId[] = [
+    ...(discoverySurface ? [SURFACE_IDS.discovery] : []),
+    ...(watchlistSurface ? [SURFACE_IDS.watchlist] : []),
+    ...(reviewsSurface ? [SURFACE_IDS.reviews] : []),
   ];
   const isMulti = surfaceIds.length > 1;
 
@@ -197,7 +199,7 @@ export function MovieSearch() {
         ) : (
           surfaceIds.map((id) => <A2UIRenderer key={id} surfaceId={id} />)
         )}
-        {reviewFormSurface && <A2UIRenderer surfaceId="review-form" />}
+        {reviewFormSurface && <A2UIRenderer surfaceId={SURFACE_IDS.reviewForm} />}
 
         {lastAssistantText && (
           <p className="mt-2 text-sm text-foreground whitespace-pre-wrap">
