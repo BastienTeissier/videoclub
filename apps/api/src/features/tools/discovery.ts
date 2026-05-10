@@ -10,6 +10,10 @@ import {
   discoveryNightPlanMessages,
   type DiscoveryView,
 } from "../../services/agents/a2ui-emitter.js";
+import {
+  MOVIE_ID_FORMAT_RULE,
+  VIEW_SELECTION_RULE,
+} from "../../services/agents/system-prompt.js";
 
 const discoveryFiltersSchema = z.object({
   title: z.string().optional(),
@@ -45,9 +49,9 @@ Before calling, classify the user's referent. If they refer to movies already sh
 
 ${getCatalogPromptDescription()}
 
-Pick \`view: "comparison"\` when the user wants a side-by-side compare across a shortlist (>=2 movie ids) of already-discussed movies; pass \`shortlistMovieIds\` (the ids the user asked about) and optional \`comparisonCriteria\` (e.g., ["runtime", "mood", "group-safety"]). Pick \`view: "night-plan"\` when the user asks to pick one for tonight; pass \`pickedMovieId\`, optional \`backupMovieIds\`, and a short \`reason\`. Default to \`view: "grid"\` for fresh discovery queries.
+${VIEW_SELECTION_RULE}
 
-Movie id format: shortlistMovieIds, pickedMovieId, and backupMovieIds MUST be values from the \`id\` field (UUIDs like "550e8400-e29b-41d4-a716-446655440000") of movies returned by a prior \`discovery\`, \`watchlist_show\`, or \`review_show\` call. NEVER pass the \`tmdbId\` field (a small integer) — that identifier will not resolve. Never invent ids.`,
+${MOVIE_ID_FORMAT_RULE}`,
     inputSchema: z.object({
       filters: discoveryFiltersSchema.optional(),
       view: z.string().default("grid"),

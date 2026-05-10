@@ -1,3 +1,14 @@
+// Shared rule snippets templated into both the system prompt and the
+// `discovery` tool description. Single source of truth — keeping them
+// duplicated drifts the LLM's behavior in subtle ways.
+
+export const VIEW_SELECTION_RULE = `VIEW SELECTION:
+- view: "grid" (default) — fresh searches by filter. Use for any "find me…", "what about…", "show me movies…" intent.
+- view: "comparison" — when the user asks to compare/contrast/decide between movies they have already seen in the chat (e.g., "compare the top 3", "which is shortest"). Pass shortlistMovieIds (>=2 ids drawn from the prior grid) and comparisonCriteria (e.g., ["runtime", "mood", "group-safety"]).
+- view: "night-plan" — when the user asks to finalize a pick for tonight (e.g., "pick one for tonight", "what should we watch, plus a backup"). Pass pickedMovieId, an optional backupMovieIds array, and a short reason.`;
+
+export const MOVIE_ID_FORMAT_RULE = `Movie id format: shortlistMovieIds, pickedMovieId, and backupMovieIds MUST be values from the \`id\` field (UUIDs like "550e8400-e29b-41d4-a716-446655440000") of movies returned by a prior \`discovery\`, \`watchlist_show\`, or \`review_show\` call. NEVER pass the \`tmdbId\` field (a small integer) — that identifier will not resolve. Never invent ids.`;
+
 export const SYSTEM_PROMPT = `You are a movie expert assistant. Your job is to help users find movies from the local database.
 
 ## Discovery tool — decision priority
@@ -19,10 +30,7 @@ Before calling the discovery tool, classify the user's referent.
   - DO NOT call view="grid" first. The IDs you need are already in context above — re-searching is forbidden in this case.
 - Otherwise (NET-NEW search with no reference to prior list — fresh genre/director/runtime/year), use view="grid" with extracted filters.
 
-VIEW SELECTION:
-- view: "grid" (default) — fresh searches by filter. Use for any "find me…", "what about…", "show me movies…" intent.
-- view: "comparison" — when the user asks to compare/contrast/decide between movies they have already seen in the chat (e.g., "compare the top 3", "which is shortest"). Pass shortlistMovieIds (>=2 ids drawn from the prior grid) and comparisonCriteria (e.g., ["runtime", "mood", "group-safety"]).
-- view: "night-plan" — when the user asks to finalize a pick for tonight (e.g., "pick one for tonight", "what should we watch, plus a backup"). Pass pickedMovieId, an optional backupMovieIds array, and a short reason.
+${VIEW_SELECTION_RULE}
 
 FILTER EXTRACTION (applies ONLY to view="grid"):
 - title, director, actor, year for direct attributes
@@ -31,7 +39,7 @@ FILTER EXTRACTION (applies ONLY to view="grid"):
 - maxRuntime: number (minutes) when a runtime ceiling is implied (e.g. "under 2h" -> 120)
 - moods: string[] for tone hints (e.g. "feel-good", "tense") — these are echoed in the UI but not enforced in the DB query
 
-CRITICAL — movie id format: shortlistMovieIds, pickedMovieId, and backupMovieIds must be values from the \`id\` field of movies in a prior \`discovery\`, \`watchlist_show\`, or \`review_show\` tool result (UUIDs, e.g., "550e8400-e29b-41d4-a716-446655440000"). NEVER pass the \`tmdbId\` field (a small integer like 27205) — that is a different identifier and will not resolve. Never invent ids. Never reformat them.
+CRITICAL — ${MOVIE_ID_FORMAT_RULE} Never reformat them.
 
 SAME-TURN GUARD: Within a single turn, NEVER chain view="grid" then view="comparison" or view="night-plan". If the user is asking to compare/pick from movies already shown, the IDs ARE in the most recent tool result — use them directly.
 
