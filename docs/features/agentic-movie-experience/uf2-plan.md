@@ -11,7 +11,7 @@
 - **CAN** emit `MovieComparisonTable` bound to `/comparison` (shortlistIds + criteria) and `/movies`
 - **CAN** emit `MovieNightPlan` bound to `/plan` (pickedMovieId + backupMovieIds + reason) and `/movies`
 - **CAN** resolve shortlist / picked / backup ids against the local `movies` table via `moviesRepository.findByIds` preserving caller order; no TMDB
-- **CAN** fall back to `view: "grid"` with a `warnings[]` entry when `view` is unknown, when `comparison` receives `< 2` ids, or when `night-plan` receives no `pickedMovieId`
+- **CAN** fall back to `view: "grid"` with a `warnings[]` entry only when `view` is unknown (`invalid-view`); for view-specific failures (`comparison < 2 ids`, comparison ids unresolved, `night-plan` missing/unresolved pick), return `view: "none"` with empty `a2uiMessages` so the previous surface is left intact and the LLM narrates the failure (see business rules below)
 - **CAN** translate tool-result `warnings[]` into AG-UI `CUSTOM { name: "warning" }` events for inspector consumption (UF5 will display them)
 - **CAN** expose an imperative column-flash API on `MovieComparisonTable` via a module-level highlighter registry keyed by `surfaceId` (consumed in UF5 by `highlight_comparison_criteria`)
 - **CANNOT** persist a movie-night plan (UF4)
@@ -20,14 +20,23 @@
 - **CANNOT** apply preferences memory to the `view` choice (UF3)
 
 **Business Rules**:
-- `view` is validated inside `discovery.execute`. Unknown values → `view = "grid"` + `warnings: [{ code: "invalid-view", requested }]` (existing UF1 behaviour preserved).
-- `view: "comparison"` requires `shortlistMovieIds.length >= 2`. Below threshold → `view = "grid"` + `warnings: [{ code: "comparison-too-few", count }]`. Tool's structured `data` echoes the original requested view so the LLM can narrate "I couldn't find enough movies to compare."
-- `view: "night-plan"` requires `pickedMovieId`. Missing → `view = "grid"` + `warnings: [{ code: "night-plan-incomplete" }]`.
+- `view` is validated inside `discovery.execute`. Unknown values → `view = "grid"` + `warnings: [{ code: "invalid-view", requested }]`. This is the only failure path that runs a real DB query and emits a populated grid — the user gave us valid filters with an unknown view name, so popularity-grid is the correct fallback.
+- `view: "comparison"` requires `shortlistMovieIds.length >= 2` AND `findByIds` must resolve at least 2 of them. Below either threshold → `data.view = "none"`, `a2uiMessages: []`, `data.fallbackReason = { code, ... }`, `warnings: [{ code: "comparison-too-few" | "comparison-resolution-failed", ... }]`. **No grid fallback** — the previous surface (the one the user was already looking at) is left intact and the LLM narrates "I couldn't find enough movies to compare." Earlier drafts called for grid fallback; that was changed in round-2 because re-running a popularity grid masked the real failure with unrelated movies.
+- `view: "night-plan"` requires `pickedMovieId` AND `findByIds` must resolve the picked id. Missing → `data.view = "none"`, `warnings: [{ code: "night-plan-incomplete" }]`. Picked id unresolved → `data.view = "none"`, `warnings: [{ code: "night-plan-unknown-pick", pickedMovieId }]`. **No grid fallback** for the same reason as comparison.
+
+  Failure contract summary:
+  | requested view | failure                       | `data.view` | `a2uiMessages` | warning code                     |
+  | -------------- | ----------------------------- | ----------- | -------------- | -------------------------------- |
+  | (any)          | unknown view name             | `"grid"`    | grid frames    | `invalid-view`                   |
+  | `"comparison"` | `< 2` ids supplied            | `"none"`    | `[]`           | `comparison-too-few`             |
+  | `"comparison"` | `< 2` ids resolve             | `"none"`    | `[]`           | `comparison-resolution-failed`   |
+  | `"night-plan"` | no `pickedMovieId`            | `"none"`    | `[]`           | `night-plan-incomplete`          |
+  | `"night-plan"` | `pickedMovieId` doesn't resolve | `"none"`  | `[]`           | `night-plan-unknown-pick`        |
 - `comparison` and `night-plan` views do **not** call `searchStructured`; they only call `findByIds` on the local DB. No filter panel rendered.
 - `discoverySurfaceMessages` for `comparison` emits: `createSurface` → `updateComponents` (root: Column → MovieComparisonTable) → `updateDataModel /movies` (resolved subset, preserves caller id order) → `updateDataModel /comparison` (`{ shortlistIds, criteria }`).
 - `discoverySurfaceMessages` for `night-plan` emits: `createSurface` → `updateComponents` (root: Column → MovieNightPlan) → `updateDataModel /movies` (`[picked, ...backups]` resolved) → `updateDataModel /plan` (`{ pickedMovieId, backupMovieIds, reason }`).
 - `createSurface` is idempotent (UF1 invariant): swapping view preserves prior `/movies` and `/filters` until the next `updateDataModel` overwrites them.
-- `comparisonCriteria` is a free-form `string[]`. Renderer maps known keys to derived columns (`runtime`, `year`, `director`, `genres`); unknown criteria render an empty column with the criterion as header (no crash).
+- `comparisonCriteria` is a free-form `string[]`. Cell values are resolved **server-side** by `resolveComparisonCells(movies, criteria)` (in `apps/api/src/features/tools/comparison-cells.ts`) and serialized into the `/comparison/cells` data path as `Record<movieId, Record<criterion, string>>`. Known keys (`runtime`, `year`, `director`, `genres`) produce derived display strings; unknown criteria resolve to the placeholder `"—"`. The renderer reads cells directly — no per-criterion logic on the client. This keeps the renderer dumb (deterministic-adapter rule from `architecture.md`) and means every unsupported criterion renders the same way regardless of which renderer is consuming the surface.
 - `MovieComparisonTable` registers a highlighter via `registerHighlighter(surfaceId, (criteria: string[]) => void)` on mount and unregisters on unmount. UF5 wires the handler from the frontend-tools registry; UF2 only ships the registration plumbing + a CSS class toggle.
 
 **Visual Design**: see `prd.md` § Visual ("comparison" and "night-plan" frames are not sketched separately — both render inside the existing `discovery` surface slot). `uf2-adaptive-view-layout.md` § Specification.
@@ -312,11 +321,13 @@ Tests for added behavior only.
 
 **Discovery tool** — `apps/api/src/features/tools/discovery.test.ts` 🟡 *(extend)*
 9. **`view: "comparison"` happy path** — given `shortlistMovieIds: [id1, id2, id3]`, calls `findByIds` (NOT `searchStructured`), returns `{ data: { view: "comparison", movies: 3 entries }, a2uiMessages: 4 frames }`
-10. **`view: "comparison"` with `< 2` ids falls back to grid + warning** — `shortlistMovieIds: [id1]` → `data.view === "grid"`, `data.requestedView === "comparison"`, `warnings: [{ code: "comparison-too-few", count: 1 }]`, `a2uiMessages` is the grid sequence
+10. **`view: "comparison"` with `< 2` ids returns no surface** — `shortlistMovieIds: [id1]` → `data.view === "none"`, `data.requestedView === "comparison"`, `data.fallbackReason.code === "comparison-too-few"`, `warnings: [{ code: "comparison-too-few", count: 1 }]`, `a2uiMessages` is `[]`. Crucially `searchStructured` is not called.
+10a. **`view: "comparison"` when `< 2` ids resolve** — `findByIds` returns 0 rows for 3 supplied ids → `data.view === "none"`, `data.fallbackReason.code === "comparison-resolution-failed"`, `data.fallbackReason.unresolvedIds === [...]`, `warnings: [{ code: "comparison-resolution-failed" }]`, `a2uiMessages: []`. `searchStructured` is not called.
+10b. **`view: "comparison"` partial resolution still renders** — 3 supplied, 2 resolve → `data.view === "comparison"`, `data.unresolvedIds: [thirdId]`, the 4-frame comparison sequence is emitted; renderer-side `shortlistIds` matches resolved rows only (no ghost rows).
 11. **`view: "night-plan"` happy path** — given `pickedMovieId: id1, backupMovieIds: [id2, id3]`, returns `{ data: { view: "night-plan" }, a2uiMessages: 4 frames }`; `findByIds` is called once with `[id1, id2, id3]` (picked first)
-12. **`view: "night-plan"` without `pickedMovieId`** — falls back to grid + `warnings: [{ code: "night-plan-incomplete" }]`
-13. **`view: "night-plan"` with unknown picked id** — `findByIds` returns no row matching `pickedMovieId` → falls back to grid + `warnings: [{ code: "night-plan-unknown-pick" }]`
-14. **Invalid `view: "carousel"` (UF1 regression)** — still falls back to grid + `warnings: [{ code: "invalid-view", requested: "carousel" }]`
+12. **`view: "night-plan"` without `pickedMovieId`** — `data.view === "none"`, `warnings: [{ code: "night-plan-incomplete" }]`, `a2uiMessages: []`. `searchStructured` is not called.
+13. **`view: "night-plan"` with unknown picked id** — `findByIds` returns no row matching `pickedMovieId` → `data.view === "none"`, `warnings: [{ code: "night-plan-unknown-pick" }]`, `a2uiMessages: []`. `searchStructured` is not called.
+14. **Invalid `view: "carousel"` (UF1 regression)** — falls back to grid (real DB query) + `warnings: [{ code: "invalid-view", requested: "carousel" }]`. This is the only failure path that emits a populated grid.
 15. **Description includes both new catalog component names** — `desc` contains `"MovieComparisonTable"` and `"MovieNightPlan"`
 
 **ag-ui-stream** — `apps/api/src/services/agents/ag-ui-stream.test.ts` 🟡 *(extend)*
@@ -329,8 +340,8 @@ Tests for added behavior only.
 **MovieComparisonTable** — `apps/web/src/lib/a2ui/renderers/movie-comparison-table.test.tsx` 🟢
 19. **Renders one row per shortlist id (resolved via /movies)** — surface with `/comparison: { shortlistIds: [a,b,c], criteria: ["runtime"] }` and `/movies: [m_a, m_b, m_c, m_d]` → 3 rows in `[a,b,c]` order; `m_d` not rendered
 20. **Missing id resolves to no row, no crash** — `shortlistIds: [a, "missing"]` → 1 row
-21. **Known criterion renders cell value** — `criteria: ["runtime"]` with `m_a.runtime = 95` → cell text `"95 min"`
-22. **Unknown criterion renders empty cell with header** — `criteria: ["vibes"]` → header "vibes" appears, cells render `"—"`
+21. **Server-resolved cell values render** — surface seeded with `/comparison: { ..., cells: { id_a: { runtime: "95 min" } } }` → cell text `"95 min"`. Cells now come from the data model, not from in-renderer getters.
+22. **Unknown criterion still shows the column with the placeholder** — surface seeded with `criteria: ["vibes"]` and `cells: { id_a: { vibes: "—" } }` (server-side `resolveComparisonCells` produces the placeholder) → header "vibes" appears, cell renders `"—"`. Unit tests for `resolveComparisonCells` (`apps/api/src/features/tools/comparison-cells.test.ts`) cover the server-side mapping in isolation.
 23. **`triggerHighlight(surfaceId, ["runtime"])` toggles `.a2ui-flash` on the runtime column** — render the table, call `triggerHighlight`, assert `<col>` has the class
 24. **Highlighter unregisters on unmount** — render then unmount; subsequent `triggerHighlight` returns `false`
 
@@ -350,7 +361,7 @@ Tests for added behavior only.
 - `pnpm lint` green
 - `pnpm test` green across `@repo/contracts`, `@repo/db`, `@repo/api`, `@repo/web`
 - Live in-browser: prompt "feel-good comedy under 2h" → grid renders (UF1 regression). Then "compare the top 3" → grid swaps to comparison table (3 rows, criteria columns), `/movies` still in network trace from prior frame, only `/comparison` patched. Then "pick one for tonight, plus a backup" → night-plan surface renders with picked + backups + reason. Network tab shows `TOOL_CALL_ARGS` with the chosen `view`.
-- Live: edge case — prompt "compare just one movie" → grid reappears with a `CUSTOM { name: "warning", value: { code: "comparison-too-few" } }` event in the network trace (no inspector yet — UF5 surfaces it visually).
+- Live: edge case — prompt "compare just one movie" → previous surface is left intact (no grid flash, no comparison surface) and the assistant text fallback narrates the failure; network trace shows `data.view === "none"`, `a2uiMessages: []`, and a `CUSTOM { name: "warning", value: { code: "comparison-too-few" } }` event before `TOOL_CALL_RESULT` (no inspector yet — UF5 surfaces it visually).
 - Live: edge case — prompt "what should we watch tonight" without a `pickedMovieId` (LLM omits it) → grid fallback + warning emitted; LLM acknowledges in chat.
 
 *(Golden-trace runner is bootstrapped in UF5 / Phase 5 of the macro plan. UF2 may opt-in by manual SSE capture into `apps/api/tests/__goldens__/uf2-comparison.json` and `uf2-night-plan.json` if convenient — not a verify-gate requirement.)*
