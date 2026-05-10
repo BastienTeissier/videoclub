@@ -10,6 +10,18 @@ vi.mock("../../services/agents/message-translator.js", () => ({
   extractInterruptResponse: vi.fn(() => null),
 }));
 
+const mockFindToolCallByAiSdkCallId = vi.fn();
+
+vi.mock("@repo/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@repo/db")>();
+  return {
+    ...actual,
+    agentRunsRepository: vi.fn(() => ({
+      findToolCallByAiSdkCallId: mockFindToolCallByAiSdkCallId,
+    })),
+  };
+});
+
 import { agentRun } from "../../services/agents/agent-run.js";
 import { extractInterruptResponse } from "../../services/agents/message-translator.js";
 
@@ -31,6 +43,7 @@ function makeValidBody(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockExtractInterrupt.mockReturnValue(null);
+  mockFindToolCallByAiSdkCallId.mockResolvedValue(null);
   mockStart.mockImplementation(async function* () {
     yield 'data: {"type":"RUN_STARTED"}\n\n';
     yield 'data: {"type":"RUN_FINISHED"}\n\n';
@@ -82,7 +95,14 @@ describe("POST /api/v1/chat", () => {
   it("calls agentRun.resume when forwardedProps.interruptResponse is present", async () => {
     mockExtractInterrupt.mockReturnValue({
       interruptId: "call_abc",
-      response: { pickedMovieId: "movie-42" },
+      response: { pickedMovieId: "11111111-1111-4111-8111-111111111111" },
+    });
+    mockFindToolCallByAiSdkCallId.mockResolvedValue({
+      id: "tc-1",
+      toolName: "review_delete",
+      input: {},
+      output: null,
+      runId: "run-orig",
     });
 
     const res = await app.request("/api/v1/chat", {
@@ -93,7 +113,9 @@ describe("POST /api/v1/chat", () => {
           forwardedProps: {
             interruptResponse: {
               interruptId: "call_abc",
-              response: { pickedMovieId: "movie-42" },
+              response: {
+                pickedMovieId: "11111111-1111-4111-8111-111111111111",
+              },
             },
           },
         }),
@@ -107,10 +129,137 @@ describe("POST /api/v1/chat", () => {
         threadId: "thread-1",
         runId: "run-1",
         interruptId: "call_abc",
-        response: { pickedMovieId: "movie-42" },
+        response: { pickedMovieId: "11111111-1111-4111-8111-111111111111" },
       }),
     );
     expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when interruptId resolves to no pending tool call", async () => {
+    mockExtractInterrupt.mockReturnValue({
+      interruptId: "call_missing",
+      response: { approved: true },
+    });
+    mockFindToolCallByAiSdkCallId.mockResolvedValue(null);
+
+    const res = await app.request("/api/v1/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        makeValidBody({
+          forwardedProps: {
+            interruptResponse: {
+              interruptId: "call_missing",
+              response: { approved: true },
+            },
+          },
+        }),
+      ),
+    });
+
+    expect(res.status).toBe(404);
+    expect(mockResume).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 when the pending tool call already has an output", async () => {
+    mockExtractInterrupt.mockReturnValue({
+      interruptId: "call_done",
+      response: { approved: true },
+    });
+    mockFindToolCallByAiSdkCallId.mockResolvedValue({
+      id: "tc-1",
+      toolName: "commit_movie_night",
+      input: {},
+      output: { kind: "success" },
+      runId: "run-orig",
+    });
+
+    const res = await app.request("/api/v1/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        makeValidBody({
+          forwardedProps: {
+            interruptResponse: {
+              interruptId: "call_done",
+              response: { approved: true },
+            },
+          },
+        }),
+      ),
+    });
+
+    expect(res.status).toBe(409);
+    expect(mockResume).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 with issues when commit_movie_night editedReason exceeds maxLength", async () => {
+    const tooLong = "x".repeat(1001);
+    mockExtractInterrupt.mockReturnValue({
+      interruptId: "call_commit",
+      response: { approved: true, editedReason: tooLong },
+    });
+    mockFindToolCallByAiSdkCallId.mockResolvedValue({
+      id: "tc-1",
+      toolName: "commit_movie_night",
+      input: {},
+      output: null,
+      runId: "run-orig",
+    });
+
+    const res = await app.request("/api/v1/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        makeValidBody({
+          forwardedProps: {
+            interruptResponse: {
+              interruptId: "call_commit",
+              response: { approved: true, editedReason: tooLong },
+            },
+          },
+        }),
+      ),
+    });
+
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { issues: Array<{ path: unknown[] }> };
+    expect(body.issues[0]!.path).toContain("editedReason");
+    expect(mockResume).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 SSE on a valid commit_movie_night reject response", async () => {
+    mockExtractInterrupt.mockReturnValue({
+      interruptId: "call_reject",
+      response: { approved: false },
+    });
+    mockFindToolCallByAiSdkCallId.mockResolvedValue({
+      id: "tc-1",
+      toolName: "commit_movie_night",
+      input: {},
+      output: null,
+      runId: "run-orig",
+    });
+
+    const res = await app.request("/api/v1/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        makeValidBody({
+          forwardedProps: {
+            interruptResponse: {
+              interruptId: "call_reject",
+              response: { approved: false },
+            },
+          },
+        }),
+      ),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockResume).toHaveBeenCalledWith(
+      expect.objectContaining({ response: { approved: false } }),
+    );
   });
 
   it("returns 400 for invalid RunAgentInput", async () => {
