@@ -1,6 +1,15 @@
 import { z } from "zod";
 
-const NOTES_MAX = 8;
+export const NOTES_MAX = 8;
+
+export const jsonPatchOpSchema = z
+  .object({
+    op: z.enum(["add", "remove", "replace", "move", "copy", "test"]),
+    path: z.string(),
+  })
+  .passthrough();
+export const jsonPatchOpsSchema = z.array(jsonPatchOpSchema);
+export type JsonPatchOp = z.infer<typeof jsonPatchOpSchema>;
 
 export const viewingPreferencesSchema = z.object({
   genres: z.array(z.string()).optional(),
@@ -22,10 +31,10 @@ export type ViewingPreferencesPatch = z.infer<
 
 export interface PatchApplication {
   next: ViewingPreferences;
-  jsonPatchOps: JsonPatchOp[];
+  jsonPatchOps: BuildOp[];
 }
 
-type JsonPatchOp =
+type BuildOp =
   | { op: "replace"; path: string; value: unknown }
   | { op: "add"; path: string; value: unknown }
   | { op: "remove"; path: string };
@@ -33,7 +42,7 @@ type JsonPatchOp =
 function applyNotesPatch(
   prevNotes: string[] | undefined,
   newNotes: string[],
-  ops: JsonPatchOp[],
+  ops: BuildOp[],
 ): string[] {
   const existing = prevNotes ?? [];
   const appended = [...existing, ...newNotes];
@@ -59,7 +68,7 @@ export function applyPatch(
   patch: ViewingPreferencesPatch,
 ): PatchApplication {
   const next: ViewingPreferences = { ...prev };
-  const ops: JsonPatchOp[] = [];
+  const ops: BuildOp[] = [];
 
   for (const key of ["genres", "maxRuntime", "moods"] as const) {
     if (patch[key] === undefined) continue;

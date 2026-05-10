@@ -10,9 +10,13 @@ export {
 } from "./mutation-outcome";
 
 export {
+  NOTES_MAX,
+  jsonPatchOpSchema,
+  jsonPatchOpsSchema,
   viewingPreferencesSchema,
   viewingPreferencesPatchSchema,
   applyPatch,
+  type JsonPatchOp,
   type ViewingPreferences,
   type ViewingPreferencesPatch,
   type PatchApplication,
