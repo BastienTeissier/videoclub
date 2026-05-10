@@ -355,6 +355,10 @@ export function agentRun(db: Database) {
       throw new Error(`Unknown or non-executable tool: ${pending.toolName}`);
     }
 
+    const respObj = (input.response ?? {}) as { approved?: boolean };
+    const isReject =
+      pending.toolName === "commit_movie_night" && respObj.approved === false;
+
     const mergedInput = mergeResumeInput(
       pending.toolName,
       pending.input,
@@ -362,18 +366,26 @@ export function agentRun(db: Database) {
     );
 
     const resumedToolCallId = `resume-${input.interruptId}`;
-    // Dynamic dispatch over a heterogeneous ToolSet: the tool's input type
-    // varies per name and cannot be statically reconciled with mergedInput.
-    // The original input was already validated by the AI SDK; mergeResumeInput
-    // only adds resolution-side fields (pickedMovieId, editedReason).
-    const execute = tool.execute as (
-      input: unknown,
-      opts: { toolCallId: string; messages: ModelMessage[] },
-    ) => Promise<unknown>;
-    const result = await execute(mergedInput, {
-      toolCallId: resumedToolCallId,
-      messages: [],
-    });
+    let result: unknown;
+    if (isReject) {
+      result = {
+        kind: "rejected" as const,
+        message: "User rejected the proposed plan.",
+      };
+    } else {
+      // Dynamic dispatch over a heterogeneous ToolSet: the tool's input type
+      // varies per name and cannot be statically reconciled with mergedInput.
+      // The original input was already validated by the AI SDK; mergeResumeInput
+      // only adds resolution-side fields (pickedMovieId, editedReason).
+      const execute = tool.execute as (
+        input: unknown,
+        opts: { toolCallId: string; messages: ModelMessage[] },
+      ) => Promise<unknown>;
+      result = await execute(mergedInput, {
+        toolCallId: resumedToolCallId,
+        messages: [],
+      });
+    }
 
     // Record the resume tool call against the same agent_runs row.
     const resumedRecord = await runs.createToolCall({
