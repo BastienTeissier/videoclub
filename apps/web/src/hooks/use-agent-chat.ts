@@ -1,11 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Operation } from "fast-json-patch";
 import { createAgentClient } from "@/lib/ag-ui/client";
 import { applyMessage, clearAllSurfaces } from "@/lib/a2ui/store";
+import { useMemoryContext } from "@/contexts/memory-context";
 import {
+  a2uiMessageSchema,
   interruptRunFinishedResultSchema,
-  type A2UIMessage,
+  jsonPatchOpsSchema,
+  viewingPreferencesSchema,
   type Interrupt,
 } from "@repo/contracts";
 import type { HttpAgent, Message } from "@ag-ui/client";
@@ -23,6 +27,7 @@ interface ToolResult {
 }
 
 export function useAgentChat() {
+  const memory = useMemoryContext();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,8 +79,36 @@ export function useAgentChat() {
       },
 
       onCustomEvent({ event }) {
-        if (event.name !== "a2ui") return;
-        applyMessage(event.value as A2UIMessage);
+        if (event.name === "a2ui") {
+          const parsed = a2uiMessageSchema.safeParse(event.value);
+          if (parsed.success) applyMessage(parsed.data);
+          else console.warn("[use-agent-chat] dropped invalid a2ui event", parsed.error);
+          return;
+        }
+        if (event.name === "memory-applied") {
+          const value = event.value as { keys?: unknown } | undefined;
+          const keys = value?.keys;
+          if (Array.isArray(keys)) {
+            memory.markApplied(
+              keys.filter((k): k is string => typeof k === "string"),
+            );
+          }
+          return;
+        }
+      },
+
+      onStateSnapshotEvent({ event }) {
+        const raw = (event as { snapshot?: unknown }).snapshot;
+        const parsed = viewingPreferencesSchema.safeParse(raw ?? {});
+        if (parsed.success) memory.applySnapshot(parsed.data);
+        else console.warn("[use-agent-chat] dropped invalid STATE_SNAPSHOT", parsed.error);
+      },
+
+      onStateDeltaEvent({ event }) {
+        const raw = (event as { delta?: unknown }).delta;
+        const parsed = jsonPatchOpsSchema.safeParse(raw);
+        if (parsed.success) memory.applyDelta(parsed.data as Operation[]);
+        else console.warn("[use-agent-chat] dropped invalid STATE_DELTA", parsed.error);
       },
 
       onToolCallEndEvent({ event, toolCallName }) {
@@ -120,7 +153,7 @@ export function useAgentChat() {
 
     unsubscribeRef.current = unsubscribe;
     return agent;
-  }, []);
+  }, [memory]);
 
   const sendMessage = useCallback(
     async (text: string) => {

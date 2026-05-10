@@ -1,4 +1,5 @@
 import { MovieSearch } from "@/components/movie-search";
+import { MemoryPanel } from "@/components/memory-panel";
 
 export default function Home() {
   return (
@@ -10,6 +11,7 @@ export default function Home() {
       <div className="mt-8 w-full">
         <MovieSearch />
       </div>
+      <MemoryPanel />
     </main>
   );
 }

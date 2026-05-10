@@ -39,6 +39,15 @@ FILTER EXTRACTION (applies ONLY to view="grid"):
 - maxRuntime: number (minutes) when a runtime ceiling is implied (e.g. "under 2h" -> 120)
 - moods: string[] for tone hints (e.g. "feel-good", "tense") — these are echoed in the UI but not enforced in the DB query
 
+MEMORY CAPTURE — applies whenever you are about to call discovery view="grid".
+If your extracted filters include any of \`genres\`, \`maxRuntime\`, or \`moods\`, you MUST call \`update_preferences\` FIRST in the same turn with exactly those fields, then call \`discovery\`. Pass only the keys present in the filters; never invent values. Do not require the user to say "remember", "always", or any explicit memory verb — capture on the first mention.
+Skip \`update_preferences\` when ANY of these hold:
+- the filters are empty,
+- the filters contain only transient identifiers (\`title\`, \`director\`, \`actor\`, \`year\`), or
+- every memory-tracked filter you would pass (\`genres\`, \`maxRuntime\`, \`moods\`) is already present and unchanged in the "User viewing preferences" section below — in that case go directly to \`discovery\`.
+Do not narrate that you persisted the preference — the UI renders the change.
+Example: user says "I want a feel-good comedy under 2h" → first call \`update_preferences { genres: ["Comedy"], maxRuntime: 120, moods: ["feel-good"] }\`, then call \`discovery { view: "grid", filters: { genres: ["Comedy"], maxRuntime: 120, moods: ["feel-good"] } }\`.
+
 CRITICAL — ${MOVIE_ID_FORMAT_RULE} Never reformat them.
 
 SAME-TURN GUARD: Within a single turn, NEVER chain view="grid" then view="comparison" or view="night-plan". If the user is asking to compare/pick from movies already shown, the IDs ARE in the most recent tool result — use them directly.

@@ -1,6 +1,8 @@
+import { createElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useAgentChat } from "./use-agent-chat";
+import { MemoryProvider } from "@/contexts/memory-context";
 
 const mockRunAgent = vi.fn();
 const mockAbortRun = vi.fn();
@@ -16,6 +18,9 @@ vi.mock("@/lib/ag-ui/client", () => ({
     addMessage: vi.fn(),
   })),
 }));
+
+const wrapper = ({ children }: { children: React.ReactNode }) =>
+  createElement(MemoryProvider, null, children);
 
 let subscriberCallbacks: Record<string, (...args: unknown[]) => void> = {};
 
@@ -33,7 +38,7 @@ beforeEach(() => {
 
 describe("useAgentChat", () => {
   it("sends message and accumulates streaming text", async () => {
-    const { result } = renderHook(() => useAgentChat());
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
 
     await act(async () => {
       await result.current.sendMessage("find movies");
@@ -56,7 +61,7 @@ describe("useAgentChat", () => {
   });
 
   it("sets pendingInterrupt when run finishes with an interrupt result", async () => {
-    const { result } = renderHook(() => useAgentChat());
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
 
     await act(async () => {
       await result.current.sendMessage("delete review of Dune");
@@ -129,7 +134,7 @@ describe("useAgentChat", () => {
   });
 
   it("does not set pendingInterrupt when run finishes without an interrupt", async () => {
-    const { result } = renderHook(() => useAgentChat());
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
 
     await act(async () => {
       await result.current.sendMessage("hi");
@@ -149,7 +154,7 @@ describe("useAgentChat", () => {
   });
 
   it("respondToInterrupt re-runs the agent with forwardedProps.interruptResponse", async () => {
-    const { result } = renderHook(() => useAgentChat());
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
 
     await act(async () => {
       await result.current.sendMessage("delete review of Dune");
@@ -200,7 +205,7 @@ describe("useAgentChat", () => {
   });
 
   it("resets pendingInterrupt on a new sendMessage", async () => {
-    const { result } = renderHook(() => useAgentChat());
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
 
     await act(async () => {
       await result.current.sendMessage("first");
@@ -235,5 +240,139 @@ describe("useAgentChat", () => {
     });
 
     expect(result.current.pendingInterrupt).toBeNull();
+  });
+});
+
+describe("useAgentChat — memory subscriptions", () => {
+  it("STATE_SNAPSHOT triggers applySnapshot via memory context", async () => {
+    const memoryModule = await import("@/contexts/memory-context");
+    const useMemorySpy = vi.spyOn(memoryModule, "useMemoryContext");
+    const applySnapshot = vi.fn();
+    const applyDelta = vi.fn();
+    const markApplied = vi.fn();
+    useMemorySpy.mockReturnValue({
+      snapshot: {},
+      flashingKeys: new Set(),
+      applySnapshot,
+      applyDelta,
+      markApplied,
+    });
+
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+
+    act(() => {
+      subscriberCallbacks.onStateSnapshotEvent?.({
+        event: { snapshot: { genres: ["Comedy"] } },
+        messages: [],
+        state: {},
+        agent: {},
+        input: {},
+      });
+    });
+
+    expect(applySnapshot).toHaveBeenCalledWith({ genres: ["Comedy"] });
+
+    useMemorySpy.mockRestore();
+  });
+
+  it("STATE_DELTA triggers applyDelta with the ops array", async () => {
+    const memoryModule = await import("@/contexts/memory-context");
+    const useMemorySpy = vi.spyOn(memoryModule, "useMemoryContext");
+    const applyDelta = vi.fn();
+    useMemorySpy.mockReturnValue({
+      snapshot: {},
+      flashingKeys: new Set(),
+      applySnapshot: vi.fn(),
+      applyDelta,
+      markApplied: vi.fn(),
+    });
+
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+
+    const ops = [{ op: "add", path: "/genres", value: ["Comedy"] }];
+    act(() => {
+      subscriberCallbacks.onStateDeltaEvent?.({
+        event: { delta: ops },
+        messages: [],
+        state: {},
+        agent: {},
+        input: {},
+      });
+    });
+
+    expect(applyDelta).toHaveBeenCalledWith(ops);
+
+    useMemorySpy.mockRestore();
+  });
+
+  it("CUSTOM memory-applied triggers markApplied with the keys array", async () => {
+    const memoryModule = await import("@/contexts/memory-context");
+    const useMemorySpy = vi.spyOn(memoryModule, "useMemoryContext");
+    const markApplied = vi.fn();
+    useMemorySpy.mockReturnValue({
+      snapshot: {},
+      flashingKeys: new Set(),
+      applySnapshot: vi.fn(),
+      applyDelta: vi.fn(),
+      markApplied,
+    });
+
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+
+    act(() => {
+      subscriberCallbacks.onCustomEvent?.({
+        event: { name: "memory-applied", value: { keys: ["genres"] } },
+        messages: [],
+        state: {},
+        agent: {},
+        input: {},
+      });
+    });
+
+    expect(markApplied).toHaveBeenCalledWith(["genres"]);
+
+    useMemorySpy.mockRestore();
+  });
+
+  it("CUSTOM memory-applied with malformed value is a no-op", async () => {
+    const memoryModule = await import("@/contexts/memory-context");
+    const useMemorySpy = vi.spyOn(memoryModule, "useMemoryContext");
+    const markApplied = vi.fn();
+    useMemorySpy.mockReturnValue({
+      snapshot: {},
+      flashingKeys: new Set(),
+      applySnapshot: vi.fn(),
+      applyDelta: vi.fn(),
+      markApplied,
+    });
+
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+
+    expect(() =>
+      act(() => {
+        subscriberCallbacks.onCustomEvent?.({
+          event: { name: "memory-applied", value: { keys: "not-an-array" } },
+          messages: [],
+          state: {},
+          agent: {},
+          input: {},
+        });
+      }),
+    ).not.toThrow();
+    expect(markApplied).not.toHaveBeenCalled();
+
+    useMemorySpy.mockRestore();
   });
 });
