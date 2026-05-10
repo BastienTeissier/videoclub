@@ -108,28 +108,37 @@ export function MovieSearch() {
     return null;
   })();
 
-  return (
-    <div className="w-full max-w-2xl mx-auto">
-      <form onSubmit={handleSubmit}>
-        <Input
-          type="text"
-          placeholder="what do you want to watch? Try: check my watchlist"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="w-full"
-        />
-      </form>
+  const surfaceIds = [
+    ...(discoverySurface ? (["discovery"] as const) : []),
+    ...(watchlistSurface ? (["watchlist"] as const) : []),
+    ...(reviewsSurface ? (["reviews"] as const) : []),
+  ];
+  const isMulti = surfaceIds.length > 1;
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => sendMessage("show my reviews")}
-          disabled={isLoading}
-        >
-          My Reviews
-        </Button>
+  return (
+    <div className={`w-full mx-auto ${isMulti ? "max-w-6xl" : "max-w-2xl"}`}>
+      <div className="max-w-2xl mx-auto">
+        <form onSubmit={handleSubmit}>
+          <Input
+            type="text"
+            placeholder="what do you want to watch? Try: check my watchlist"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="w-full"
+          />
+        </form>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => sendMessage("show my reviews")}
+            disabled={isLoading}
+          >
+            My Reviews
+          </Button>
+        </div>
       </div>
 
       <div className="mt-6">
@@ -176,9 +185,15 @@ export function MovieSearch() {
           </div>
         )}
 
-        {discoverySurface && <A2UIRenderer surfaceId="discovery" />}
-        {watchlistSurface && <A2UIRenderer surfaceId="watchlist" />}
-        {reviewsSurface && <A2UIRenderer surfaceId="reviews" />}
+        {isMulti ? (
+          <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
+            {surfaceIds.map((id) => (
+              <A2UIRenderer key={id} surfaceId={id} />
+            ))}
+          </div>
+        ) : (
+          surfaceIds.map((id) => <A2UIRenderer key={id} surfaceId={id} />)
+        )}
         {reviewFormSurface && <A2UIRenderer surfaceId="review-form" />}
 
         {lastAssistantText && !hasProtocolSurface && !pendingInterrupt && (
