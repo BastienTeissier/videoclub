@@ -21,6 +21,7 @@ const defaultHookReturn = {
   isLoading: false,
   error: null as string | null,
   pendingInterrupt: null as PendingInterrupt | null,
+  interruptIssues: [] as { path: (string | number)[]; message: string }[],
   toolResults: [] as { toolName: string; toolCallId: string; result: unknown }[],
   sendMessage: mockSendMessage,
   respondToInterrupt: mockRespondToInterrupt,
@@ -102,7 +103,7 @@ describe("MovieSearch", () => {
     expect(mockSendMessage).toHaveBeenCalledWith("show my reviews");
   });
 
-  it("shows TMDB confirmation button when pendingInterrupt is a search_tmdb approval", () => {
+  it("renders ApprovalDialog with Approve/Reject buttons for a search_tmdb interrupt", () => {
     hookReturn = {
       ...defaultHookReturn,
       pendingInterrupt: {
@@ -110,15 +111,26 @@ describe("MovieSearch", () => {
         reason: "approval",
         message: "Approve calling search_tmdb?",
         proposed: { toolName: "search_tmdb", input: { query: "Stalker" } },
-        responseSchema: { type: "object" },
+        responseSchema: {
+          type: "object",
+          properties: { approved: { type: "boolean" } },
+          required: ["approved"],
+        },
       },
     };
 
     render(<MovieSearch />);
-    expect(screen.getByText("Search TMDB for more results")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Approve" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Reject" }),
+    ).toBeInTheDocument();
+    // No textarea for search_tmdb (no editedReason in schema)
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
-  it("clicking confirm button calls respondToInterrupt with { approved: true }", () => {
+  it("clicking Approve in the dialog calls respondToInterrupt with { approved: true }", () => {
     hookReturn = {
       ...defaultHookReturn,
       pendingInterrupt: {
@@ -126,21 +138,84 @@ describe("MovieSearch", () => {
         reason: "approval",
         message: "Approve calling search_tmdb?",
         proposed: { toolName: "search_tmdb", input: { query: "Stalker" } },
-        responseSchema: { type: "object" },
+        responseSchema: {
+          type: "object",
+          properties: { approved: { type: "boolean" } },
+          required: ["approved"],
+        },
       },
     };
 
     render(<MovieSearch />);
-    fireEvent.click(screen.getByText("Search TMDB for more results"));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
     expect(mockRespondToInterrupt).toHaveBeenCalledWith("tc-1", {
       approved: true,
     });
   });
 
-  it("hides button after approval completes", () => {
+  it("clicking Reject in the dialog calls respondToInterrupt with { approved: false }", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      pendingInterrupt: {
+        id: "tc-1",
+        reason: "approval",
+        message: "Approve calling search_tmdb?",
+        proposed: { toolName: "search_tmdb", input: { query: "Stalker" } },
+        responseSchema: {
+          type: "object",
+          properties: { approved: { type: "boolean" } },
+          required: ["approved"],
+        },
+      },
+    };
+
     render(<MovieSearch />);
-    expect(screen.queryByText("Search TMDB for more results")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+
+    expect(mockRespondToInterrupt).toHaveBeenCalledWith("tc-1", {
+      approved: false,
+    });
+  });
+
+  it("renders ApprovalDialog with editable reason for a commit_movie_night interrupt", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      pendingInterrupt: {
+        id: "tc-c",
+        reason: "approval",
+        message: "Confirm tonight's movie pick before I commit.",
+        proposed: {
+          pickedMovieId: "11111111-1111-4111-8111-111111111111",
+          backupMovieIds: ["22222222-2222-4222-8222-222222222222"],
+          reason: "feel-good",
+        },
+        responseSchema: {
+          type: "object",
+          properties: {
+            approved: { type: "boolean" },
+            editedReason: {
+              type: "string",
+              "ui:widget": "textarea",
+              "ui:prefillFrom": "/proposed/reason",
+              maxLength: 1000,
+            },
+          },
+          required: ["approved"],
+        },
+      },
+    };
+
+    render(<MovieSearch />);
+    expect(screen.getByDisplayValue("feel-good")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Approve" }),
+    ).toBeInTheDocument();
+  });
+
+  it("hides ApprovalDialog when there is no pending interrupt", () => {
+    render(<MovieSearch />);
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
   });
 
   it("renders the discovery surface from the A2UI store", () => {

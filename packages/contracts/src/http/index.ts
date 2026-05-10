@@ -32,3 +32,7 @@ export {
   type MovieNightPlan,
   type ListMovieNightPlansResponse,
 } from "./movie-night";
+export {
+  pendingInterruptResponseSchema,
+  type PendingInterruptResponse,
+} from "./chat";

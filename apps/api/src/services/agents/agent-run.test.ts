@@ -37,6 +37,9 @@ vi.mock("../../features/tools/review-delete.js", () => ({
 vi.mock("../../features/tools/update-preferences.js", () => ({
   createUpdatePreferencesTool: vi.fn(() => ({ type: "update_preferences_tool" })),
 }));
+vi.mock("../../features/tools/commit-movie-night.js", () => ({
+  createCommitMovieNightTool: vi.fn(() => ({ type: "commit_movie_night_tool" })),
+}));
 
 vi.mock("./ag-ui-stream.js", () => ({
   streamAgUiEvents: vi.fn(async function* () {
@@ -166,9 +169,29 @@ describe("agentRun.start", () => {
           review_show: expect.anything(),
           review_delete: expect.anything(),
           update_preferences: expect.anything(),
+          commit_movie_night: expect.anything(),
         }),
       }),
     );
+  });
+
+  it("threads runDbId into createCommitMovieNightTool on start", async () => {
+    const commitModule = await import(
+      "../../features/tools/commit-movie-night.js"
+    );
+    const commitFactory = vi.mocked(commitModule.createCommitMovieNightTool);
+    commitFactory.mockClear();
+    mockCreateRun.mockResolvedValueOnce({ id: "run-bound" });
+
+    await drain(
+      agentRun(fakeDb).start({
+        userId: "user-1",
+        runId: "ag-run-1",
+        messages: [{ role: "user", content: "test" }],
+      }),
+    );
+
+    expect(commitFactory).toHaveBeenCalledWith(fakeDb, "user-1", "run-bound");
   });
 
   it("passes messages array to streamText (no `prompt`)", async () => {
@@ -488,6 +511,152 @@ describe("agentRun.resume", () => {
         }),
       ),
     ).rejects.toThrow(/Session not found/);
+  });
+
+  it("commit_movie_night reject: skips execute and records a synthetic rejected outcome", async () => {
+    const executeSpy = vi.fn();
+    const commitModule = await import(
+      "../../features/tools/commit-movie-night.js"
+    );
+    vi.mocked(commitModule.createCommitMovieNightTool).mockReturnValueOnce({
+      type: "commit_movie_night_tool",
+      execute: executeSpy,
+    } as never);
+
+    mockFindToolCallByAiSdkCallId.mockResolvedValue({
+      id: "tc-row-1",
+      aiSdkCallId: "call_commit",
+      toolName: "commit_movie_night",
+      input: {
+        pickedMovieId: "uuid-picked",
+        backupMovieIds: [],
+        reason: "vibe",
+      },
+      output: null,
+      runId: "run-orig",
+    });
+    mockFindRunById.mockResolvedValue({
+      id: "run-orig",
+      sessionId: "session-1",
+    });
+    mockCreateToolCall.mockResolvedValue({ id: "tc-row-2" });
+
+    await drain(
+      agentRun(fakeDb).resume({
+        userId: "user-1",
+        threadId: "session-1",
+        runId: "ag-run-2",
+        interruptId: "call_commit",
+        response: { approved: false },
+      }),
+    );
+
+    expect(executeSpy).not.toHaveBeenCalled();
+    expect(mockCompleteToolCall).toHaveBeenCalledWith(
+      "tc-row-2",
+      expect.objectContaining({
+        output: expect.objectContaining({ kind: "rejected" }),
+      }),
+    );
+    expect(mockCreateToolCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-orig",
+        toolName: "commit_movie_night",
+      }),
+    );
+  });
+
+  it("commit_movie_night approve: invokes execute with merged editedReason", async () => {
+    const executeSpy = vi.fn(async () => ({
+      kind: "success",
+      affected: [],
+      message: "Locked in Dune for tonight.",
+      plan: { reason: "edited" },
+    }));
+    const commitModule = await import(
+      "../../features/tools/commit-movie-night.js"
+    );
+    vi.mocked(commitModule.createCommitMovieNightTool).mockReturnValueOnce({
+      type: "commit_movie_night_tool",
+      execute: executeSpy,
+    } as never);
+
+    mockFindToolCallByAiSdkCallId.mockResolvedValue({
+      id: "tc-row-1",
+      aiSdkCallId: "call_commit",
+      toolName: "commit_movie_night",
+      input: {
+        pickedMovieId: "uuid-picked",
+        backupMovieIds: [],
+        reason: "original",
+      },
+      output: null,
+      runId: "run-orig",
+    });
+    mockFindRunById.mockResolvedValue({
+      id: "run-orig",
+      sessionId: "session-1",
+    });
+    mockCreateToolCall.mockResolvedValue({ id: "tc-row-2" });
+
+    await drain(
+      agentRun(fakeDb).resume({
+        userId: "user-1",
+        threadId: "session-1",
+        runId: "ag-run-2",
+        interruptId: "call_commit",
+        response: { approved: true, editedReason: "edited" },
+      }),
+    );
+
+    expect(executeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "edited" }),
+      expect.objectContaining({ toolCallId: "resume-call_commit" }),
+    );
+  });
+
+  it("commit_movie_night approve without editedReason: keeps proposed reason", async () => {
+    const executeSpy = vi.fn(async () => ({ kind: "success" }));
+    const commitModule = await import(
+      "../../features/tools/commit-movie-night.js"
+    );
+    vi.mocked(commitModule.createCommitMovieNightTool).mockReturnValueOnce({
+      type: "commit_movie_night_tool",
+      execute: executeSpy,
+    } as never);
+
+    mockFindToolCallByAiSdkCallId.mockResolvedValue({
+      id: "tc-row-1",
+      aiSdkCallId: "call_commit",
+      toolName: "commit_movie_night",
+      input: {
+        pickedMovieId: "uuid-picked",
+        backupMovieIds: [],
+        reason: "proposed-reason",
+      },
+      output: null,
+      runId: "run-orig",
+    });
+    mockFindRunById.mockResolvedValue({
+      id: "run-orig",
+      sessionId: "session-1",
+    });
+    mockCreateToolCall.mockResolvedValue({ id: "tc-row-2" });
+
+    await drain(
+      agentRun(fakeDb).resume({
+        userId: "user-1",
+        threadId: "session-1",
+        runId: "ag-run-2",
+        interruptId: "call_commit",
+        response: { approved: true },
+      }),
+    );
+
+    expect(executeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "proposed-reason" }),
+      expect.anything(),
+    );
   });
 
   it("refuses to resume when the pending interrupt belongs to a different session", async () => {

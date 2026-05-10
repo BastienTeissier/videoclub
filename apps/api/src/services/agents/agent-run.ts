@@ -20,6 +20,7 @@ import { createReviewPrefillTool } from "../../features/tools/review-prefill.js"
 import { createReviewShowTool } from "../../features/tools/review-show.js";
 import { createReviewDeleteTool } from "../../features/tools/review-delete.js";
 import { createUpdatePreferencesTool } from "../../features/tools/update-preferences.js";
+import { createCommitMovieNightTool } from "../../features/tools/commit-movie-night.js";
 import {
   streamAgUiEvents,
   stripUiNoise,
@@ -90,6 +91,7 @@ function buildToolset(
   db: Database,
   userId: string,
   sessionId: string,
+  runDbId: string,
 ): ToolSet {
   return {
     discovery: createDiscoveryTool(db),
@@ -101,6 +103,7 @@ function buildToolset(
     review_show: createReviewShowTool(db, userId),
     review_delete: createReviewDeleteTool(db, userId),
     update_preferences: createUpdatePreferencesTool(db, sessionId),
+    commit_movie_night: createCommitMovieNightTool(db, userId, runDbId),
   };
 }
 
@@ -228,7 +231,7 @@ export function agentRun(db: Database) {
       model: getModel(),
       system: systemPrompt,
       messages: p.messages,
-      tools: buildToolset(db, p.userId, p.sessionId),
+      tools: buildToolset(db, p.userId, p.sessionId, p.runDbId),
       stopWhen: stepCountIs(5),
       onFinish: buildOnFinish(p.runDbId, p.sessionId),
       onError: async ({ error }) => {
@@ -345,12 +348,16 @@ export function agentRun(db: Database) {
       throw new Error(`Interrupt does not belong to this session`);
     }
 
-    const tools = buildToolset(db, input.userId, session.id);
+    const tools = buildToolset(db, input.userId, session.id, pending.runId);
     const toolName = pending.toolName as keyof typeof tools;
     const tool = tools[toolName];
     if (!tool || typeof tool.execute !== "function") {
       throw new Error(`Unknown or non-executable tool: ${pending.toolName}`);
     }
+
+    const respObj = (input.response ?? {}) as { approved?: boolean };
+    const isReject =
+      pending.toolName === "commit_movie_night" && respObj.approved === false;
 
     const mergedInput = mergeResumeInput(
       pending.toolName,
@@ -359,18 +366,26 @@ export function agentRun(db: Database) {
     );
 
     const resumedToolCallId = `resume-${input.interruptId}`;
-    // Dynamic dispatch over a heterogeneous ToolSet: the tool's input type
-    // varies per name and cannot be statically reconciled with mergedInput.
-    // The original input was already validated by the AI SDK; mergeResumeInput
-    // only adds resolution-side fields (pickedMovieId, editedReason).
-    const execute = tool.execute as (
-      input: unknown,
-      opts: { toolCallId: string; messages: ModelMessage[] },
-    ) => Promise<unknown>;
-    const result = await execute(mergedInput, {
-      toolCallId: resumedToolCallId,
-      messages: [],
-    });
+    let result: unknown;
+    if (isReject) {
+      result = {
+        kind: "rejected" as const,
+        message: "User rejected the proposed plan.",
+      };
+    } else {
+      // Dynamic dispatch over a heterogeneous ToolSet: the tool's input type
+      // varies per name and cannot be statically reconciled with mergedInput.
+      // The original input was already validated by the AI SDK; mergeResumeInput
+      // only adds resolution-side fields (pickedMovieId, editedReason).
+      const execute = tool.execute as (
+        input: unknown,
+        opts: { toolCallId: string; messages: ModelMessage[] },
+      ) => Promise<unknown>;
+      result = await execute(mergedInput, {
+        toolCallId: resumedToolCallId,
+        messages: [],
+      });
+    }
 
     // Record the resume tool call against the same agent_runs row.
     const resumedRecord = await runs.createToolCall({

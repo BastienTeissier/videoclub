@@ -32,7 +32,7 @@ export type CommitMovieNightProposed = z.infer<
 
 export const commitMovieNightResponseSchema = z.object({
   approved: z.boolean(),
-  editedReason: z.string().optional(),
+  editedReason: z.string().max(1000).optional(),
 });
 export type CommitMovieNightResponse = z.infer<
   typeof commitMovieNightResponseSchema

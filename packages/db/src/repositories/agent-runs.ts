@@ -1,7 +1,10 @@
-import { eq, and, isNull, isNotNull, asc, desc } from "drizzle-orm";
+import { eq, and, inArray, isNull, isNotNull, asc, desc } from "drizzle-orm";
 import { agentRuns } from "../schema/agent-runs.js";
+import { agentSessions } from "../schema/agent-sessions.js";
 import { toolCalls } from "../schema/tool-calls.js";
 import type { Database } from "../client/index.js";
+
+const APPROVAL_TOOL_NAMES = ["commit_movie_night", "search_tmdb"] as const;
 
 export function agentRunsRepository(db: Database) {
   return {
@@ -116,6 +119,31 @@ export function agentRunsRepository(db: Database) {
           ),
         )
         .orderBy(asc(toolCalls.createdAt));
+    },
+
+    async findLatestPendingApprovalToolCall(userId: string) {
+      const [row] = await db
+        .select({
+          id: toolCalls.id,
+          aiSdkCallId: toolCalls.aiSdkCallId,
+          toolName: toolCalls.toolName,
+          input: toolCalls.input,
+          runId: toolCalls.runId,
+          sessionId: agentSessions.id,
+        })
+        .from(toolCalls)
+        .innerJoin(agentRuns, eq(toolCalls.runId, agentRuns.id))
+        .innerJoin(agentSessions, eq(agentRuns.sessionId, agentSessions.id))
+        .where(
+          and(
+            eq(agentSessions.userId, userId),
+            isNull(toolCalls.output),
+            inArray(toolCalls.toolName, [...APPROVAL_TOOL_NAMES]),
+          ),
+        )
+        .orderBy(desc(toolCalls.createdAt))
+        .limit(1);
+      return row ?? null;
     },
 
     async findToolCallByAiSdkCallId(aiSdkCallId: string) {

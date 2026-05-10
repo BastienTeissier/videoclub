@@ -5,6 +5,7 @@ import { Input, Button } from "@repo/ui";
 import {
   wireMutationOutcomeSchema,
   clarificationProposedSchema,
+  commitMovieNightProposedSchema,
   SURFACE_IDS,
   type MovieDto,
   type SurfaceId,
@@ -13,6 +14,8 @@ import { useAgentChat } from "@/hooks/use-agent-chat";
 import { useDomainRefetchers } from "@/lib/domain-refetchers";
 import { A2UIRenderer } from "@/lib/a2ui/registry";
 import { useA2UISurface } from "@/lib/a2ui/store";
+import { ApprovalDialog } from "./approval-dialog";
+import { MovieNightSummary } from "./movie-night-summary";
 
 export function MovieSearch() {
   const [query, setQuery] = useState("");
@@ -20,6 +23,7 @@ export function MovieSearch() {
     isLoading,
     error,
     pendingInterrupt,
+    interruptIssues,
     toolResults,
     messages,
     sendMessage,
@@ -74,11 +78,6 @@ export function MovieSearch() {
     void respondToInterrupt(pendingInterrupt.id, { pickedMovieId: movie.id });
   }
 
-  function handleInterruptApprove() {
-    if (!pendingInterrupt) return;
-    void respondToInterrupt(pendingInterrupt.id, { approved: true });
-  }
-
   const interruptCandidates: MovieDto[] | null = (() => {
     if (!pendingInterrupt || pendingInterrupt.reason !== "clarification") {
       return null;
@@ -89,12 +88,21 @@ export function MovieSearch() {
     return parsed.success ? parsed.data.candidates : null;
   })();
 
-  const showApprovalButton =
-    pendingInterrupt?.reason === "approval" &&
-    typeof pendingInterrupt.proposed === "object" &&
-    pendingInterrupt.proposed !== null &&
-    (pendingInterrupt.proposed as { toolName?: string }).toolName ===
-      "search_tmdb";
+  const approvalSummary = (() => {
+    if (!pendingInterrupt || pendingInterrupt.reason !== "approval") return null;
+    const parsed = commitMovieNightProposedSchema.safeParse(
+      pendingInterrupt.proposed,
+    );
+    if (!parsed.success) return null;
+    return (
+      <MovieNightSummary
+        pickedMovieId={parsed.data.pickedMovieId}
+        backupMovieIds={parsed.data.backupMovieIds}
+      />
+    );
+  })();
+
+  const isApproval = pendingInterrupt?.reason === "approval";
 
   const hasProtocolSurface =
     !!discoverySurface ||
@@ -153,21 +161,18 @@ export function MovieSearch() {
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        {showApprovalButton && (
-          <div className="mb-4">
-            <Button onClick={handleInterruptApprove} disabled={isLoading}>
-              Search TMDB for more results
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-2"
-              onClick={cancelInterrupt}
-              disabled={isLoading}
-            >
-              Cancel
-            </Button>
-          </div>
+        {isApproval && pendingInterrupt && (
+          <ApprovalDialog
+            interrupt={pendingInterrupt}
+            open
+            isSubmitting={isLoading}
+            issues={interruptIssues}
+            summary={approvalSummary}
+            onSubmit={(response) =>
+              respondToInterrupt(pendingInterrupt.id, response)
+            }
+            onCancel={cancelInterrupt}
+          />
         )}
 
         {interruptCandidates && (
