@@ -41,7 +41,10 @@ FILTER EXTRACTION (applies ONLY to view="grid"):
 
 MEMORY CAPTURE — applies whenever you are about to call discovery view="grid".
 If your extracted filters include any of \`genres\`, \`maxRuntime\`, or \`moods\`, you MUST call \`update_preferences\` FIRST in the same turn with exactly those fields, then call \`discovery\`. Pass only the keys present in the filters; never invent values. Do not require the user to say "remember", "always", or any explicit memory verb — capture on the first mention.
-Skip \`update_preferences\` only when the filters are empty or contain only transient identifiers (\`title\`, \`director\`, \`actor\`, \`year\`).
+Skip \`update_preferences\` when ANY of these hold:
+- the filters are empty,
+- the filters contain only transient identifiers (\`title\`, \`director\`, \`actor\`, \`year\`), or
+- every memory-tracked filter you would pass (\`genres\`, \`maxRuntime\`, \`moods\`) is already present and unchanged in the "User viewing preferences" section below — in that case go directly to \`discovery\`.
 Do not narrate that you persisted the preference — the UI renders the change.
 Example: user says "I want a feel-good comedy under 2h" → first call \`update_preferences { genres: ["Comedy"], maxRuntime: 120, moods: ["feel-good"] }\`, then call \`discovery { view: "grid", filters: { genres: ["Comedy"], maxRuntime: 120, moods: ["feel-good"] } }\`.
 

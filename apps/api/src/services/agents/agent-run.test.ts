@@ -630,7 +630,9 @@ describe("agentRun memory seeding + system-prompt", () => {
     );
 
     const call = mockStreamText.mock.calls[0]![0] as Record<string, unknown>;
-    expect(call.system).not.toContain("User viewing preferences");
+    // The base prompt mentions "User viewing preferences" in the skip clause;
+    // assert the section *header* is absent instead.
+    expect(call.system).not.toContain("## User viewing preferences");
   });
 
   it("passes a memory ref carrying the seeded snapshot to streamAgUiEvents", async () => {

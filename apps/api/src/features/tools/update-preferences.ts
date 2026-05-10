@@ -10,6 +10,11 @@ export function createUpdatePreferencesTool(db: Database, sessionId: string) {
       const repo = agentSessionsRepository(db);
       const result = await repo.applyPreferencesPatch(sessionId, input);
       if (!result) {
+        // invariant: agentRun.start creates the session and agentRun.resume
+        // verifies it via findByIdForUser before any tool runs, so the
+        // session always exists by the time this tool executes. This guard
+        // is defense-in-depth against a future refactor that breaks that
+        // ordering — not a recoverable error path.
         throw new Error(`Session not found: ${sessionId}`);
       }
       return {
