@@ -1,5 +1,16 @@
 export const VIDEOCLUB_CATALOG_ID = "videoclub" as const;
 
+// Stable surface ids shared between the agent (which emits surfaces) and the
+// frontend (which subscribes to them). Renaming a value here is the only
+// place a rename can happen — both ends import these constants.
+export const SURFACE_IDS = {
+  discovery: "discovery",
+  watchlist: "watchlist",
+  reviews: "reviews",
+  reviewForm: "review-form",
+} as const;
+export type SurfaceId = (typeof SURFACE_IDS)[keyof typeof SURFACE_IDS];
+
 export interface CatalogComponent {
   name: string;
   description: string;
@@ -38,6 +49,18 @@ export const videoclubCatalog: ReadonlyArray<CatalogComponent> = [
     name: "Skeleton",
     description:
       "Loading placeholder. Variants: 'movie-grid' (default 5 cards) or 'row'.",
+  },
+  {
+    name: "MovieComparisonTable",
+    description:
+      "Comparison table over a movie shortlist (rows = movies, columns = criteria like runtime, year, director, genres). Reads /comparison (shortlistIds + criteria) and joins against /movies.",
+    bindablePaths: ["/comparison", "/movies"],
+  },
+  {
+    name: "MovieNightPlan",
+    description:
+      "Final movie-night recommendation: one picked movie, optional backups, free-text reason. Reads /plan (pickedMovieId + backupMovieIds + reason) and joins against /movies.",
+    bindablePaths: ["/plan", "/movies"],
   },
 ];
 

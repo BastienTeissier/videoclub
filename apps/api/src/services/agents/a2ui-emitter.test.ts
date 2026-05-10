@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import type { MovieDto, ReviewWithMovieDto } from "@repo/contracts";
 import {
   discoverySurfaceMessages,
+  discoveryComparisonMessages,
+  discoveryNightPlanMessages,
   watchlistGridMessages,
   reviewsGridMessages,
 } from "./a2ui-emitter.js";
@@ -80,6 +82,158 @@ describe("discoverySurfaceMessages", () => {
       return null;
     });
     expect(surfaceIds.every((id) => id === "custom")).toBe(true);
+  });
+});
+
+const movieA: MovieDto = { ...sampleMovie, id: "id-a", title: "A" };
+const movieB: MovieDto = { ...sampleMovie, id: "id-b", title: "B" };
+const movieC: MovieDto = { ...sampleMovie, id: "id-c", title: "C" };
+
+describe("discoveryComparisonMessages", () => {
+  it("emits createSurface, updateComponents (MovieComparisonTable), /movies, /comparison in order", () => {
+    const messages = discoveryComparisonMessages({
+      movies: [movieA, movieB, movieC],
+      shortlistIds: ["id-a", "id-b", "id-c"],
+      criteria: ["runtime", "mood"],
+    });
+
+    expect(messages).toHaveLength(4);
+    expect(messages[0]).toHaveProperty("createSurface");
+    const components = (
+      messages[1] as {
+        updateComponents: { components: Array<{ id: string; component: string }> };
+      }
+    ).updateComponents.components;
+    const node = components.find((c) => c.id === "comparison");
+    expect(node?.component).toBe("MovieComparisonTable");
+    expect((messages[2] as { updateDataModel: { path: string } }).updateDataModel.path).toBe(
+      "/movies",
+    );
+    expect((messages[3] as { updateDataModel: { path: string } }).updateDataModel.path).toBe(
+      "/comparison",
+    );
+    expect(
+      (messages[3] as {
+        updateDataModel: {
+          value: {
+            criteria: string[];
+            shortlistIds: string[];
+            cells: Record<string, Record<string, string>>;
+          };
+        };
+      }).updateDataModel.value,
+    ).toEqual({
+      shortlistIds: ["id-a", "id-b", "id-c"],
+      criteria: ["runtime", "mood"],
+      cells: {},
+    });
+  });
+
+  it("preserves caller order in /movies (no popularity sort)", () => {
+    const messages = discoveryComparisonMessages({
+      movies: [movieC, movieA, movieB],
+      shortlistIds: ["id-c", "id-a", "id-b"],
+    });
+    const moviesUpdate = messages[2] as {
+      updateDataModel: { path: string; value: MovieDto[] };
+    };
+    expect(moviesUpdate.updateDataModel.value.map((m) => m.id)).toEqual([
+      "id-c",
+      "id-a",
+      "id-b",
+    ]);
+  });
+
+  it("defaults criteria to empty array when omitted", () => {
+    const messages = discoveryComparisonMessages({
+      movies: [movieA, movieB],
+      shortlistIds: ["id-a", "id-b"],
+    });
+    const value = (
+      messages[3] as { updateDataModel: { value: { criteria: string[] } } }
+    ).updateDataModel.value;
+    expect(value.criteria).toEqual([]);
+  });
+});
+
+describe("discoveryNightPlanMessages", () => {
+  it("emits createSurface, updateComponents (MovieNightPlan), /movies, /plan in order", () => {
+    const messages = discoveryNightPlanMessages({
+      movies: [movieA, movieB, movieC],
+      pickedMovieId: "id-a",
+      backupMovieIds: ["id-b", "id-c"],
+      reason: "feel-good Friday",
+    });
+
+    expect(messages).toHaveLength(4);
+    const node = (
+      messages[1] as {
+        updateComponents: { components: Array<{ id: string; component: string }> };
+      }
+    ).updateComponents.components.find((c) => c.id === "plan");
+    expect(node?.component).toBe("MovieNightPlan");
+    expect((messages[2] as { updateDataModel: { path: string } }).updateDataModel.path).toBe(
+      "/movies",
+    );
+    expect((messages[3] as { updateDataModel: { path: string } }).updateDataModel.path).toBe(
+      "/plan",
+    );
+    expect(
+      (messages[3] as {
+        updateDataModel: {
+          value: { pickedMovieId: string; backupMovieIds: string[]; reason: string | null };
+        };
+      }).updateDataModel.value,
+    ).toEqual({
+      pickedMovieId: "id-a",
+      backupMovieIds: ["id-b", "id-c"],
+      reason: "feel-good Friday",
+    });
+  });
+
+  it("missing reason serializes as null; missing backups defaults to []", () => {
+    const messages = discoveryNightPlanMessages({
+      movies: [movieA],
+      pickedMovieId: "id-a",
+    });
+    const value = (
+      messages[3] as {
+        updateDataModel: {
+          value: { backupMovieIds: string[]; reason: string | null };
+        };
+      }
+    ).updateDataModel.value;
+    expect(value.backupMovieIds).toEqual([]);
+    expect(value.reason).toBeNull();
+  });
+});
+
+describe("discoverySurfaceMessages dispatcher", () => {
+  it("view: 'grid' → 5-frame grid sequence", () => {
+    const messages = discoverySurfaceMessages({
+      view: "grid",
+      filters: { genres: ["Comedy"] },
+      movies: [movieA],
+    });
+    expect(messages).toHaveLength(5);
+  });
+
+  it("view: 'comparison' → 4-frame comparison sequence", () => {
+    const messages = discoverySurfaceMessages({
+      view: "comparison",
+      movies: [movieA, movieB],
+      shortlistIds: ["id-a", "id-b"],
+    });
+    expect(messages).toHaveLength(4);
+  });
+
+  it("view: 'night-plan' → 4-frame night-plan sequence", () => {
+    const messages = discoverySurfaceMessages({
+      view: "night-plan",
+      movies: [movieA],
+      pickedMovieId: "id-a",
+    });
+    expect(messages).toHaveLength(4);
   });
 });
 

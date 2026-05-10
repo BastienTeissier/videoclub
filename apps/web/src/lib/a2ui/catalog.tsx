@@ -9,6 +9,8 @@ import { MovieGrid } from "./renderers/movie-grid";
 import { WatchlistGrid } from "./renderers/watchlist-grid";
 import { ReviewsGrid } from "./renderers/reviews-grid";
 import { ReviewForm } from "./renderers/review-form";
+import { MovieComparisonTable } from "./renderers/movie-comparison-table";
+import { MovieNightPlan } from "./renderers/movie-night-plan";
 import { getSurface } from "./store";
 import type { Renderer } from "./renderer-types";
 
@@ -22,6 +24,8 @@ const catalog: Record<string, Renderer> = {
   WatchlistGrid,
   ReviewsGrid,
   ReviewForm,
+  MovieComparisonTable,
+  MovieNightPlan,
 };
 
 export function renderComponent(

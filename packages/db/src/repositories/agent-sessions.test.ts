@@ -38,6 +38,21 @@ describe("agentSessionsRepository", () => {
     expect(found!.userId).toBe("user-1");
   });
 
+  it("findByIdForUser returns the session when ownership matches", async () => {
+    const repo = agentSessionsRepository(db);
+    const session = await repo.create("user-owner");
+    const found = await repo.findByIdForUser(session.id, "user-owner");
+    expect(found).not.toBeNull();
+    expect(found!.id).toBe(session.id);
+  });
+
+  it("findByIdForUser returns null when ownership does not match", async () => {
+    const repo = agentSessionsRepository(db);
+    const session = await repo.create("user-A");
+    const found = await repo.findByIdForUser(session.id, "user-B");
+    expect(found).toBeNull();
+  });
+
   it("updates session context", async () => {
     const repo = agentSessionsRepository(db);
 

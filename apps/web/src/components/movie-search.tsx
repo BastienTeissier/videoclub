@@ -5,7 +5,9 @@ import { Input, Button } from "@repo/ui";
 import {
   wireMutationOutcomeSchema,
   clarificationProposedSchema,
+  SURFACE_IDS,
   type MovieDto,
+  type SurfaceId,
 } from "@repo/contracts";
 import { useAgentChat } from "@/hooks/use-agent-chat";
 import { useDomainRefetchers } from "@/lib/domain-refetchers";
@@ -19,6 +21,7 @@ export function MovieSearch() {
     error,
     pendingInterrupt,
     toolResults,
+    messages,
     sendMessage,
     respondToInterrupt,
     cancelInterrupt,
@@ -26,10 +29,10 @@ export function MovieSearch() {
 
   const refetchers = useDomainRefetchers();
 
-  const discoverySurface = useA2UISurface("discovery");
-  const watchlistSurface = useA2UISurface("watchlist");
-  const reviewsSurface = useA2UISurface("reviews");
-  const reviewFormSurface = useA2UISurface("review-form");
+  const discoverySurface = useA2UISurface(SURFACE_IDS.discovery);
+  const watchlistSurface = useA2UISurface(SURFACE_IDS.watchlist);
+  const reviewsSurface = useA2UISurface(SURFACE_IDS.reviews);
+  const reviewFormSurface = useA2UISurface(SURFACE_IDS.reviewForm);
 
   const prevToolResultsRef = useRef<typeof toolResults | null>(null);
 
@@ -99,28 +102,48 @@ export function MovieSearch() {
     !!reviewsSurface ||
     !!reviewFormSurface;
 
-  return (
-    <div className="w-full max-w-2xl mx-auto">
-      <form onSubmit={handleSubmit}>
-        <Input
-          type="text"
-          placeholder="what do you want to watch? Try: check my watchlist"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="w-full"
-        />
-      </form>
+  const shouldRenderText = !hasProtocolSurface && !pendingInterrupt;
+  const lastAssistantText = shouldRenderText
+    ? (() => {
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const m = messages[i]!;
+          if (m.role === "assistant" && m.content.trim().length > 0) return m.content;
+        }
+        return null;
+      })()
+    : null;
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => sendMessage("show my reviews")}
-          disabled={isLoading}
-        >
-          My Reviews
-        </Button>
+  const surfaceIds: SurfaceId[] = [
+    ...(discoverySurface ? [SURFACE_IDS.discovery] : []),
+    ...(watchlistSurface ? [SURFACE_IDS.watchlist] : []),
+    ...(reviewsSurface ? [SURFACE_IDS.reviews] : []),
+  ];
+  const isMulti = surfaceIds.length > 1;
+
+  return (
+    <div className={`w-full mx-auto ${isMulti ? "max-w-6xl" : "max-w-2xl"}`}>
+      <div className="max-w-2xl mx-auto">
+        <form onSubmit={handleSubmit}>
+          <Input
+            type="text"
+            placeholder="what do you want to watch? Try: check my watchlist"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="w-full"
+          />
+        </form>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => sendMessage("show my reviews")}
+            disabled={isLoading}
+          >
+            My Reviews
+          </Button>
+        </div>
       </div>
 
       <div className="mt-6">
@@ -167,10 +190,22 @@ export function MovieSearch() {
           </div>
         )}
 
-        {discoverySurface && <A2UIRenderer surfaceId="discovery" />}
-        {watchlistSurface && <A2UIRenderer surfaceId="watchlist" />}
-        {reviewsSurface && <A2UIRenderer surfaceId="reviews" />}
-        {reviewFormSurface && <A2UIRenderer surfaceId="review-form" />}
+        {isMulti ? (
+          <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
+            {surfaceIds.map((id) => (
+              <A2UIRenderer key={id} surfaceId={id} />
+            ))}
+          </div>
+        ) : (
+          surfaceIds.map((id) => <A2UIRenderer key={id} surfaceId={id} />)
+        )}
+        {reviewFormSurface && <A2UIRenderer surfaceId={SURFACE_IDS.reviewForm} />}
+
+        {lastAssistantText && (
+          <p className="mt-2 text-sm text-foreground whitespace-pre-wrap">
+            {lastAssistantText}
+          </p>
+        )}
       </div>
     </div>
   );

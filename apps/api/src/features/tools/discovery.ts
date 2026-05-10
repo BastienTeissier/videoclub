@@ -1,10 +1,24 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { getCatalogPromptDescription, type MovieDto } from "@repo/contracts";
-import type { Database } from "@repo/db";
+import {
+  getCatalogPromptDescription,
+  SURFACE_IDS,
+  type MovieDto,
+} from "@repo/contracts";
+import { moviesRepository, type Database } from "@repo/db";
 import { searchMoviesData } from "./search-movies.js";
 import { movieToDto } from "./movie-to-dto.js";
-import { discoverySurfaceMessages } from "../../services/agents/a2ui-emitter.js";
+import { resolveComparisonCells } from "./comparison-cells.js";
+import {
+  discoveryGridMessages,
+  discoveryComparisonMessages,
+  discoveryNightPlanMessages,
+  type DiscoveryView,
+} from "../../services/agents/a2ui-emitter.js";
+import {
+  MOVIE_ID_FORMAT_RULE,
+  VIEW_SELECTION_RULE,
+} from "../../services/agents/system-prompt.js";
 
 const discoveryFiltersSchema = z.object({
   title: z.string().optional(),
@@ -18,43 +32,165 @@ const discoveryFiltersSchema = z.object({
 });
 
 const VALID_VIEWS = ["grid", "comparison", "night-plan"] as const;
+const SURFACE_ID = SURFACE_IDS.discovery;
+
+type WarningCode =
+  | "invalid-view"
+  | "comparison-too-few"
+  | "comparison-resolution-failed"
+  | "night-plan-incomplete"
+  | "night-plan-unknown-pick";
+
+interface ToolWarning {
+  code: WarningCode;
+  [key: string]: unknown;
+}
 
 export function createDiscoveryTool(db: Database) {
   return tool({
-    description: `Movie-discovery surface. Call this whenever the user asks for movies to watch or wants the result rendered as a poster grid. Extracts filters from the natural-language query and emits an A2UI surface progressively (skeleton -> filters echo -> grid).
+    description: `Movie-discovery surface. Call this whenever the user asks for movies to watch, wants to compare a shortlist, or wants to finalize a movie-night pick. Extracts filters from the natural-language query and emits an A2UI surface progressively.
+
+Before calling, classify the user's referent. If they refer to movies already shown in this thread (e.g. "the top 3 in my watchlist", "compare those", "pick one"), pass view="comparison" or view="night-plan" with IDs from the most recent prior tool result that listed movies — \`discovery\`, \`watchlist_show\`, or \`review_show\`. Do NOT call view="grid" first.
 
 ${getCatalogPromptDescription()}
 
-For UF1 always pass view: "grid".`,
+${VIEW_SELECTION_RULE}
+
+${MOVIE_ID_FORMAT_RULE}`,
     inputSchema: z.object({
       filters: discoveryFiltersSchema.optional(),
       view: z.string().default("grid"),
+      shortlistMovieIds: z.array(z.string()).optional(),
+      comparisonCriteria: z.array(z.string()).optional(),
+      pickedMovieId: z.string().optional(),
+      backupMovieIds: z.array(z.string()).optional(),
+      reason: z.string().optional(),
     }),
     execute: async (input) => {
       const requestedView = input.view ?? "grid";
       const isValidView = (VALID_VIEWS as readonly string[]).includes(
         requestedView,
       );
-      const view = isValidView ? requestedView : "grid";
+      const warnings: ToolWarning[] = [];
+      const effectiveView: DiscoveryView = isValidView
+        ? (requestedView as DiscoveryView)
+        : "grid";
+      if (!isValidView) {
+        warnings.push({ code: "invalid-view", requested: requestedView });
+      }
 
+      const repo = moviesRepository(db);
+
+      // view-specific failure: return a no-surface response so the LLM
+      // narrates the failure to the user via the text fallback in
+      // movie-search.tsx, instead of rendering a misleading popularity grid.
+      function viewFailure(reason: ToolWarning) {
+        warnings.push(reason);
+        return {
+          data: {
+            movies: [] as MovieDto[],
+            view: "none" as const,
+            requestedView,
+            fallbackReason: reason,
+          },
+          a2uiMessages: [],
+          warnings,
+        };
+      }
+
+      if (effectiveView === "comparison") {
+        const ids = input.shortlistMovieIds ?? [];
+        if (ids.length < 2) {
+          return viewFailure({ code: "comparison-too-few", count: ids.length });
+        }
+        const rows = await repo.findByIds(ids);
+        const resolvedIds = new Set(rows.map((r) => r.id));
+        const unresolved = ids.filter((id) => !resolvedIds.has(id));
+        if (rows.length < 2) {
+          // Common cause: LLM passed tmdbId values instead of `id` UUIDs.
+          return viewFailure({
+            code: "comparison-resolution-failed",
+            requestedCount: ids.length,
+            resolvedCount: rows.length,
+            unresolvedIds: unresolved,
+          });
+        }
+        const movies: MovieDto[] = rows.map(movieToDto);
+        const criteria = input.comparisonCriteria ?? [];
+        const cells = resolveComparisonCells(movies, criteria);
+        return {
+          data: {
+            movies,
+            view: "comparison" as const,
+            requestedView,
+            shortlistMovieIds: ids,
+            comparisonCriteria: criteria,
+            ...(unresolved.length ? { unresolvedIds: unresolved } : {}),
+          },
+          a2uiMessages: discoveryComparisonMessages({
+            surfaceId: SURFACE_ID,
+            movies,
+            shortlistIds: rows.map((r) => r.id),
+            criteria,
+            cells,
+          }),
+          ...(warnings.length ? { warnings } : {}),
+        };
+      }
+
+      if (effectiveView === "night-plan") {
+        const pickedId = input.pickedMovieId;
+        if (!pickedId) {
+          return viewFailure({ code: "night-plan-incomplete" });
+        }
+        const ids = [pickedId, ...(input.backupMovieIds ?? [])];
+        const rows = await repo.findByIds(ids);
+        const picked = rows.find((r) => r.id === pickedId);
+        if (!picked) {
+          return viewFailure({
+            code: "night-plan-unknown-pick",
+            pickedMovieId: pickedId,
+          });
+        }
+        const movies: MovieDto[] = rows.map(movieToDto);
+        return {
+          data: {
+            movies,
+            view: "night-plan" as const,
+            requestedView,
+            pickedMovieId: pickedId,
+            backupMovieIds: input.backupMovieIds ?? [],
+            reason: input.reason ?? null,
+          },
+          a2uiMessages: discoveryNightPlanMessages({
+            surfaceId: SURFACE_ID,
+            movies,
+            pickedMovieId: pickedId,
+            backupMovieIds: input.backupMovieIds,
+            reason: input.reason,
+          }),
+          ...(warnings.length ? { warnings } : {}),
+        };
+      }
+
+      // Default / invalid-view fallback: actual grid search with user's filters.
       const filters = input.filters ?? {};
       const { moods: _moods, ...dbFilters } = filters;
-
       const rows = await searchMoviesData(db, dbFilters);
       const movies: MovieDto[] = rows.map(movieToDto);
-
-      const warnings = isValidView
-        ? undefined
-        : [{ code: "invalid-view" as const, requested: requestedView }];
-
       return {
-        data: { movies, filters, view },
-        a2uiMessages: discoverySurfaceMessages({
-          surfaceId: "discovery",
+        data: {
+          movies,
+          filters,
+          view: "grid" as const,
+          requestedView,
+        },
+        a2uiMessages: discoveryGridMessages({
+          surfaceId: SURFACE_ID,
           filters,
           movies,
         }),
-        ...(warnings ? { warnings } : {}),
+        ...(warnings.length ? { warnings } : {}),
       };
     },
   });

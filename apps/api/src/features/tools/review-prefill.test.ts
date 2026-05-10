@@ -16,6 +16,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockMoviesRepository.mockReturnValue({
     findById: mockFindById,
+    findByIds: vi.fn(),
     searchByTitle: vi.fn(),
     searchStructured: mockSearchStructured,
     upsertFromTmdb: vi.fn(),

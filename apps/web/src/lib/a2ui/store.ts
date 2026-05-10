@@ -13,9 +13,13 @@ export interface SurfaceState {
 }
 
 type Listener = () => void;
+type Highlighter = (criteria: string[]) => void;
 
 const surfaces = new Map<string, SurfaceState>();
 const listeners = new Set<Listener>();
+// Per-surface highlighter registry. Keyed by surfaceId, sharing the surface
+// lifecycle via `clearSurface` / `clearAllSurfaces`.
+const highlighters = new Map<string, Set<Highlighter>>();
 
 function emit(): void {
   for (const l of listeners) l();
@@ -84,15 +88,38 @@ export function applyMessage(msg: A2UIMessage): void {
 }
 
 export function clearAllSurfaces(): void {
+  highlighters.clear();
   if (surfaces.size === 0) return;
   surfaces.clear();
   emit();
 }
 
 export function clearSurface(surfaceId: string): void {
+  highlighters.delete(surfaceId);
   if (!surfaces.has(surfaceId)) return;
   surfaces.delete(surfaceId);
   emit();
+}
+
+export function getHighlighters(surfaceId: string): Set<Highlighter>;
+export function getHighlighters(
+  surfaceId: string,
+  opts: { create: false },
+): Set<Highlighter> | undefined;
+export function getHighlighters(
+  surfaceId: string,
+  opts?: { create?: boolean },
+): Set<Highlighter> | undefined {
+  let set = highlighters.get(surfaceId);
+  if (!set && opts?.create !== false) {
+    set = new Set();
+    highlighters.set(surfaceId, set);
+  }
+  return set;
+}
+
+export function clearHighlighters(surfaceId: string): void {
+  highlighters.delete(surfaceId);
 }
 
 export function getSurface(surfaceId: string): SurfaceState | undefined {

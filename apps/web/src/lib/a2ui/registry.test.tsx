@@ -119,6 +119,96 @@ describe("A2UIRenderer (protocol)", () => {
   });
 });
 
+function comparisonSwapMessages(shortlistIds: string[]): A2UIMessage[] {
+  return [
+    {
+      updateComponents: {
+        surfaceId: "discovery",
+        components: [
+          { id: "root", component: "Column", children: ["comparison"] },
+          {
+            id: "comparison",
+            component: "MovieComparisonTable",
+            data: { path: "/comparison" },
+          },
+        ],
+      },
+    },
+    {
+      updateDataModel: {
+        surfaceId: "discovery",
+        path: "/comparison",
+        value: { shortlistIds, criteria: ["runtime"] },
+      },
+    },
+  ];
+}
+
+function nightPlanSwapMessages(pickedId: string): A2UIMessage[] {
+  return [
+    {
+      updateComponents: {
+        surfaceId: "discovery",
+        components: [
+          { id: "root", component: "Column", children: ["plan"] },
+          {
+            id: "plan",
+            component: "MovieNightPlan",
+            data: { path: "/plan" },
+          },
+        ],
+      },
+    },
+    {
+      updateDataModel: {
+        surfaceId: "discovery",
+        path: "/plan",
+        value: { pickedMovieId: pickedId, backupMovieIds: [], reason: null },
+      },
+    },
+  ];
+}
+
+describe("A2UIRenderer view swap (UF2)", () => {
+  beforeEach(() => {
+    clearAllSurfaces();
+  });
+
+  it("grid -> comparison swaps the rendered component while preserving /movies", () => {
+    const movies = [fakeMovie(1), fakeMovie(2), fakeMovie(3)];
+    const grid = discoveryMessages(movies);
+    for (const m of grid) applyMessage(m);
+
+    const { rerender } = render(<A2UIRenderer surfaceId="discovery" />);
+    expect(screen.getByText("Movie 1")).toBeInTheDocument();
+
+    const swap = comparisonSwapMessages([
+      movies[0]!.id,
+      movies[1]!.id,
+      movies[2]!.id,
+    ]);
+    for (const m of swap) applyMessage(m);
+    rerender(<A2UIRenderer surfaceId="discovery" />);
+
+    // Comparison table renders; criterion header visible
+    expect(screen.getByText("runtime")).toBeInTheDocument();
+    // Movies rendered as table rows (titles still appear)
+    expect(screen.getByText(/Movie 1/)).toBeInTheDocument();
+  });
+
+  it("comparison -> night-plan swaps to MovieNightPlan", () => {
+    const movies = [fakeMovie(1), fakeMovie(2)];
+    for (const m of discoveryMessages(movies)) applyMessage(m);
+    for (const m of comparisonSwapMessages([movies[0]!.id, movies[1]!.id]))
+      applyMessage(m);
+    for (const m of nightPlanSwapMessages(movies[0]!.id)) applyMessage(m);
+
+    render(<A2UIRenderer surfaceId="discovery" />);
+    expect(screen.getByText("Tonight")).toBeInTheDocument();
+    expect(screen.queryByText("runtime")).not.toBeInTheDocument();
+  });
+});
+
 describe("A2UIRenderer (review-form via A2UI store)", () => {
   it("renders the review form when bound to surface state", () => {
     applyMessage({

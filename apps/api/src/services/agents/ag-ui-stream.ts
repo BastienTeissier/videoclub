@@ -30,11 +30,17 @@ function extractA2UIMessages(output: unknown): A2UIMessage[] | undefined {
   return Array.isArray(maybe) ? (maybe as A2UIMessage[]) : undefined;
 }
 
-function stripA2UIMessages(output: unknown): unknown {
-  if (!output || typeof output !== "object" || !("a2uiMessages" in output)) {
-    return output;
-  }
-  const { a2uiMessages: _ignored, ...rest } = output as Record<string, unknown>;
+function extractWarnings(output: unknown): unknown[] {
+  if (!output || typeof output !== "object") return [];
+  const maybe = (output as { warnings?: unknown }).warnings;
+  return Array.isArray(maybe) ? maybe : [];
+}
+
+export function stripUiNoise(output: unknown): unknown {
+  if (!output || typeof output !== "object") return output;
+  const obj = output as Record<string, unknown>;
+  if (!("a2uiMessages" in obj) && !("warnings" in obj)) return output;
+  const { a2uiMessages: _a, warnings: _w, ...rest } = obj;
   return rest;
 }
 
@@ -156,11 +162,18 @@ async function* emitToolResult(
       });
     }
   }
+  for (const warning of extractWarnings(output)) {
+    yield encoder.encode({
+      type: EventType.CUSTOM,
+      name: "warning",
+      value: warning,
+    });
+  }
   yield encoder.encode({
     type: EventType.TOOL_CALL_RESULT,
     toolCallId,
     messageId: `tool-result-${toolCallId}`,
-    content: JSON.stringify(stripA2UIMessages(output)),
+    content: JSON.stringify(stripUiNoise(output)),
   });
 }
 

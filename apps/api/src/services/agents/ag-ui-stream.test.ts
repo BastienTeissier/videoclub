@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { streamAgUiEvents } from "./ag-ui-stream.js";
+import { streamAgUiEvents, stripUiNoise } from "./ag-ui-stream.js";
 import type { TextStreamPart, ToolSet } from "ai";
 
 async function collectEvents(
@@ -310,6 +310,68 @@ describe("streamAgUiEvents", () => {
     }
   });
 
+  it("emits CUSTOM:warning per warning entry and strips warnings from TOOL_CALL_RESULT", async () => {
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: {},
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-result",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: {},
+        output: {
+          data: { view: "grid" },
+          warnings: [
+            { code: "invalid-view", requested: "carousel" },
+            { code: "comparison-too-few", count: 1 },
+          ],
+        },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), options);
+    const events = await collectEvents(stream);
+    const customEvents = events.filter(
+      (e) => parseEventType(e) === "CUSTOM" && e.includes('"name":"warning"'),
+    );
+    expect(customEvents).toHaveLength(2);
+    expect(customEvents[0]).toContain("invalid-view");
+    expect(customEvents[1]).toContain("comparison-too-few");
+
+    const resultEvent = events.find((e) => parseEventType(e) === "TOOL_CALL_RESULT")!;
+    expect(resultEvent).not.toContain("warnings");
+    expect(resultEvent).toContain("\\\"data\\\"");
+  });
+
+  it("does not emit CUSTOM:warning when warnings field is absent or empty", async () => {
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: {},
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-result",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: {},
+        output: { data: { view: "grid" } },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), options);
+    const events = await collectEvents(stream);
+    const warningEvents = events.filter(
+      (e) => parseEventType(e) === "CUSTOM" && e.includes('"name":"warning"'),
+    );
+    expect(warningEvents).toHaveLength(0);
+  });
+
   it("does not emit CUSTOM when output has no a2uiMessages", async () => {
     const parts: TextStreamPart<ToolSet>[] = [
       {
@@ -344,5 +406,27 @@ describe("streamAgUiEvents", () => {
     const types = events.map(parseEventType);
 
     expect(types).toContain("RUN_ERROR");
+  });
+});
+
+describe("stripUiNoise", () => {
+  it("removes a2uiMessages and warnings while preserving other keys", () => {
+    const out = stripUiNoise({
+      data: { movies: [{ id: "m1" }], view: "grid" },
+      a2uiMessages: [{ createSurface: { surfaceId: "x", catalogId: "videoclub" } }],
+      warnings: [{ code: "invalid-view" }],
+    });
+    expect(out).toEqual({ data: { movies: [{ id: "m1" }], view: "grid" } });
+  });
+
+  it("returns the original output unchanged when neither key is present", () => {
+    const out = stripUiNoise({ data: { x: 1 } });
+    expect(out).toEqual({ data: { x: 1 } });
+  });
+
+  it("returns non-objects untouched", () => {
+    expect(stripUiNoise(null)).toBe(null);
+    expect(stripUiNoise("string")).toBe("string");
+    expect(stripUiNoise(42)).toBe(42);
   });
 });

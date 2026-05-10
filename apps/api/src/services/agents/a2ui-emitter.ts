@@ -1,5 +1,6 @@
 import {
   VIDEOCLUB_CATALOG_ID,
+  SURFACE_IDS,
   createSurface,
   updateComponents,
   updateDataModel,
@@ -20,11 +21,33 @@ interface DiscoveryFilters {
   moods?: string[];
 }
 
-interface DiscoverySurfaceArgs {
-  surfaceId?: string;
-  filters?: DiscoveryFilters;
-  movies: MovieDto[];
-}
+export type DiscoveryView = "grid" | "comparison" | "night-plan";
+
+// Discriminated by `view` so the type system enforces the per-variant required
+// fields (e.g. night-plan requires pickedMovieId, comparison requires shortlistIds).
+// Defaults to "grid" when view is omitted.
+type DiscoverySurfaceArgs =
+  | {
+      surfaceId?: string;
+      view?: "grid";
+      filters?: DiscoveryFilters;
+      movies: MovieDto[];
+    }
+  | {
+      surfaceId?: string;
+      view: "comparison";
+      movies: MovieDto[];
+      shortlistIds: string[];
+      criteria?: string[];
+    }
+  | {
+      surfaceId?: string;
+      view: "night-plan";
+      movies: MovieDto[];
+      pickedMovieId: string;
+      backupMovieIds?: string[];
+      reason?: string | null;
+    };
 
 interface GridStateValue<T> {
   items: T[];
@@ -59,11 +82,15 @@ function rootColumn(childIds: string[]): ComponentNode {
   return { id: ROOT_ID, component: "Column", children: childIds };
 }
 
-export function discoverySurfaceMessages({
-  surfaceId = "discovery",
+export function discoveryGridMessages({
+  surfaceId = SURFACE_IDS.discovery,
   filters,
   movies,
-}: DiscoverySurfaceArgs): A2UIMessage[] {
+}: {
+  surfaceId?: string;
+  filters?: DiscoveryFilters;
+  movies: MovieDto[];
+}): A2UIMessage[] {
   const messages: A2UIMessage[] = [
     createSurface(surfaceId, VIDEOCLUB_CATALOG_ID),
     updateComponents(surfaceId, [
@@ -95,6 +122,99 @@ export function discoverySurfaceMessages({
   return messages;
 }
 
+export function discoveryComparisonMessages({
+  surfaceId = SURFACE_IDS.discovery,
+  movies,
+  shortlistIds,
+  criteria,
+  cells,
+}: {
+  surfaceId?: string;
+  movies: MovieDto[];
+  shortlistIds: string[];
+  criteria?: string[];
+  // Server-resolved cell values: cells[movieId][criterion] → display string.
+  // Renderer reads these directly instead of computing per-criterion locally.
+  cells?: Record<string, Record<string, string>>;
+}): A2UIMessage[] {
+  return [
+    createSurface(surfaceId, VIDEOCLUB_CATALOG_ID),
+    updateComponents(surfaceId, [
+      rootColumn(["comparison"]),
+      {
+        id: "comparison",
+        component: "MovieComparisonTable",
+        data: { path: "/comparison" },
+      },
+    ]),
+    updateDataModel(surfaceId, "/movies", movies),
+    updateDataModel(surfaceId, "/comparison", {
+      shortlistIds,
+      criteria: criteria ?? [],
+      cells: cells ?? {},
+    }),
+  ];
+}
+
+export function discoveryNightPlanMessages({
+  surfaceId = SURFACE_IDS.discovery,
+  movies,
+  pickedMovieId,
+  backupMovieIds,
+  reason,
+}: {
+  surfaceId?: string;
+  movies: MovieDto[];
+  pickedMovieId: string;
+  backupMovieIds?: string[];
+  reason?: string | null;
+}): A2UIMessage[] {
+  return [
+    createSurface(surfaceId, VIDEOCLUB_CATALOG_ID),
+    updateComponents(surfaceId, [
+      rootColumn(["plan"]),
+      {
+        id: "plan",
+        component: "MovieNightPlan",
+        data: { path: "/plan" },
+      },
+    ]),
+    updateDataModel(surfaceId, "/movies", movies),
+    updateDataModel(surfaceId, "/plan", {
+      pickedMovieId,
+      backupMovieIds: backupMovieIds ?? [],
+      reason: reason ?? null,
+    }),
+  ];
+}
+
+export function discoverySurfaceMessages(
+  args: DiscoverySurfaceArgs,
+): A2UIMessage[] {
+  if (args.view === "comparison") {
+    return discoveryComparisonMessages({
+      surfaceId: args.surfaceId,
+      movies: args.movies,
+      shortlistIds: args.shortlistIds,
+      criteria: args.criteria,
+    });
+  }
+  if (args.view === "night-plan") {
+    return discoveryNightPlanMessages({
+      surfaceId: args.surfaceId,
+      movies: args.movies,
+      pickedMovieId: args.pickedMovieId,
+      backupMovieIds: args.backupMovieIds,
+      reason: args.reason,
+    });
+  }
+  return discoveryGridMessages({
+    surfaceId: args.surfaceId,
+    filters: args.filters,
+    movies: args.movies,
+  });
+}
+
 function gridStateValue<T>(
   items: T[],
   message?: string,
@@ -106,7 +226,7 @@ function gridStateValue<T>(
 }
 
 export function watchlistGridMessages({
-  surfaceId = "watchlist",
+  surfaceId = SURFACE_IDS.watchlist,
   items,
   message,
   error,
@@ -126,7 +246,7 @@ export function watchlistGridMessages({
 }
 
 export function reviewFormSurfaceMessages({
-  surfaceId = "review-form",
+  surfaceId = SURFACE_IDS.reviewForm,
   movie,
   rating,
   text,
@@ -142,7 +262,7 @@ export function reviewFormSurfaceMessages({
 }
 
 export function reviewsGridMessages({
-  surfaceId = "reviews",
+  surfaceId = SURFACE_IDS.reviews,
   items,
   message,
   error,

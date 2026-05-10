@@ -35,6 +35,7 @@ beforeEach(() => {
   } as ReturnType<typeof reviewsRepository>);
   mockMoviesRepository.mockReturnValue({
     findById: mockFindById,
+    findByIds: vi.fn(),
     searchByTitle: vi.fn(),
     searchStructured: vi.fn(),
     upsertFromTmdb: vi.fn(),
