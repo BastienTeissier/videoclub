@@ -114,6 +114,29 @@ routes → services → repositories → @repo/db
 - **Database**: Testcontainers with PostgreSQL
 - Test files colocated with source
 
+## Static analysis
+
+### Coverage
+
+- `pnpm test:coverage` runs Vitest with the v8 provider in every workspace
+- Reports land in `apps/<name>/coverage/` (`text` to stdout, `lcov.info` for tools)
+
+### SonarQube (local)
+
+1. `pnpm sonar:up` — start SonarQube + its Postgres on `http://localhost:9000` (first boot ~1 min)
+2. Log in with `admin` / `admin`, reset the password, create a project token
+3. `export SONAR_TOKEN=<token>`
+4. `pnpm test:coverage` then `pnpm sonar:scan`
+5. `pnpm sonar:down` to stop
+
+Scanner CLI: `brew install sonar-scanner`. Config lives in `sonar-project.properties`.
+
+### Pre-commit secret scan
+
+- `pnpm hooks:install` once per clone — sets `core.hooksPath` to `scripts/hooks`
+- Requires `gitleaks` (`brew install gitleaks`); `.gitleaks.toml` extends defaults
+- Runs `gitleaks protect --staged` before each commit
+
 ## Import boundaries
 
 Enforced by eslint-plugin-boundaries and dependency-cruiser:

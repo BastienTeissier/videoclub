@@ -2,17 +2,17 @@
 
 import type { ComponentNode } from "@repo/contracts";
 import type { ReactNode } from "react";
-import { Column } from "./renderers/column.js";
-import { Skeleton } from "./renderers/skeleton.js";
-import { MovieFilterPanel } from "./renderers/movie-filter-panel.js";
-import { MovieGrid } from "./renderers/movie-grid.js";
-import { WatchlistGrid } from "./renderers/watchlist-grid.js";
-import { ReviewsGrid } from "./renderers/reviews-grid.js";
-import { ReviewForm } from "./renderers/review-form.js";
-import { getSurface } from "./store.js";
-import type { Renderer } from "./renderer-types.js";
+import { Column } from "./renderers/column";
+import { Skeleton } from "./renderers/skeleton";
+import { MovieFilterPanel } from "./renderers/movie-filter-panel";
+import { MovieGrid } from "./renderers/movie-grid";
+import { WatchlistGrid } from "./renderers/watchlist-grid";
+import { ReviewsGrid } from "./renderers/reviews-grid";
+import { ReviewForm } from "./renderers/review-form";
+import { getSurface } from "./store";
+import type { Renderer } from "./renderer-types";
 
-export type { Renderer, RendererProps } from "./renderer-types.js";
+export type { Renderer, RendererProps } from "./renderer-types";
 
 const catalog: Record<string, Renderer> = {
   Column,

@@ -1,6 +1,6 @@
 "use client";
 
-import type { RendererProps } from "../renderer-types.js";
+import type { RendererProps } from "../renderer-types";
 
 const PLACEHOLDER_COUNT = 5;
 

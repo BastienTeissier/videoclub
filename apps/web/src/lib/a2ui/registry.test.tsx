@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { A2UIRenderer } from "./registry.js";
+import { A2UIRenderer } from "./registry";
 import type { A2UIMessage } from "@repo/contracts";
-import { applyMessage, clearAllSurfaces } from "./store.js";
+import { applyMessage, clearAllSurfaces } from "./store";
 
 function discoveryMessages(movies: ReturnType<typeof fakeMovie>[]): A2UIMessage[] {
   return [

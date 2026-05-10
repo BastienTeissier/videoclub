@@ -29,49 +29,42 @@ export function get(state: unknown, path: string): unknown {
   return cur;
 }
 
+type Container = Record<string, unknown> | unknown[];
+
+function shallowClone(node: unknown): Container {
+  if (node === null || node === undefined || typeof node !== "object") return {};
+  if (Array.isArray(node)) return [...node];
+  return { ...(node as Record<string, unknown>) };
+}
+
+function readChild(parent: Container, tok: string): unknown {
+  return Array.isArray(parent)
+    ? parent[Number(tok)]
+    : parent[tok];
+}
+
+function writeChild(parent: Container, tok: string, value: unknown): void {
+  if (Array.isArray(parent)) {
+    parent[Number(tok)] = value;
+  } else {
+    parent[tok] = value;
+  }
+}
+
 export function set(state: unknown, path: string, value: unknown): unknown {
   if (path === "") return value;
 
   const toks = tokens(path);
-  const root: Record<string, unknown> | unknown[] =
-    state === null || state === undefined
-      ? {}
-      : Array.isArray(state)
-        ? [...(state as unknown[])]
-        : { ...(state as Record<string, unknown>) };
-
-  let cur: Record<string, unknown> | unknown[] = root;
+  const root = shallowClone(state);
+  let cur: Container = root;
 
   for (let i = 0; i < toks.length - 1; i++) {
     const tok = toks[i]!;
-    const isArrayIdx = Array.isArray(cur);
-
-    let next = isArrayIdx
-      ? (cur as unknown[])[Number(tok)]
-      : (cur as Record<string, unknown>)[tok];
-
-    const cloned: Record<string, unknown> | unknown[] =
-      next === null || next === undefined || typeof next !== "object"
-        ? {}
-        : Array.isArray(next)
-          ? [...(next as unknown[])]
-          : { ...(next as Record<string, unknown>) };
-
-    if (isArrayIdx) {
-      (cur as unknown[])[Number(tok)] = cloned;
-    } else {
-      (cur as Record<string, unknown>)[tok] = cloned;
-    }
-    next = cloned;
+    const cloned = shallowClone(readChild(cur, tok));
+    writeChild(cur, tok, cloned);
     cur = cloned;
   }
 
-  const last = toks[toks.length - 1]!;
-  if (Array.isArray(cur)) {
-    (cur as unknown[])[Number(last)] = value;
-  } else {
-    (cur as Record<string, unknown>)[last] = value;
-  }
-
+  writeChild(cur, toks[toks.length - 1]!, value);
   return root;
 }

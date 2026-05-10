@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Repo-wide allowlist"
+paths = [
+  '''(^|/)pnpm-lock\.yaml$''',
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)\.next/''',
+  '''(^|/)coverage/''',
+]

@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { A2UIMessage, ComponentNode } from "@repo/contracts";
-import { set as ptrSet } from "./json-pointer.js";
+import { set as ptrSet } from "./json-pointer";
 
 export interface SurfaceState {
   surfaceId: string;

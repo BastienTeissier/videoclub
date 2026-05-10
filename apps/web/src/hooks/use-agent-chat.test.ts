@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useAgentChat } from "./use-agent-chat.js";
+import { useAgentChat } from "./use-agent-chat";
 
 const mockRunAgent = vi.fn();
 const mockAbortRun = vi.fn();

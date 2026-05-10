@@ -39,7 +39,6 @@ For UF1 always pass view: "grid".`,
 
       const filters = input.filters ?? {};
       const { moods: _moods, ...dbFilters } = filters;
-      void _moods;
 
       const rows = await searchMoviesData(db, dbFilters);
       const movies: MovieDto[] = rows.map(movieToDto);

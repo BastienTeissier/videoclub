@@ -3,9 +3,9 @@
 import type { MovieDto } from "@repo/contracts";
 import { useWatchlist } from "@/contexts/watchlist-context";
 import { MovieCard } from "@/components/movie-card";
-import { useA2UISurface } from "../store.js";
-import { get } from "../json-pointer.js";
-import type { RendererProps } from "../renderer-types.js";
+import { useA2UISurface } from "../store";
+import { get } from "../json-pointer";
+import type { RendererProps } from "../renderer-types";
 
 interface GridState {
   items: MovieDto[];

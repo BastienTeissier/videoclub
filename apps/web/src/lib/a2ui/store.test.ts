@@ -3,7 +3,7 @@ import {
   applyMessage,
   clearAllSurfaces,
   getSurface,
-} from "./store.js";
+} from "./store";
 
 describe("a2ui store", () => {
   beforeEach(() => {

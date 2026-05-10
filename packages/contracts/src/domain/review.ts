@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { movieSchema } from "./movie.js";
+import { movieSchema } from "./movie";
 
 export const reviewSchema = z.object({
   id: z.string().uuid(),

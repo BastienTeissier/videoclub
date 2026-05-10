@@ -9,6 +9,10 @@ out/
 # turbo
 .turbo/
 
+# coverage and sonar
+coverage/
+.scannerwork/
+
 # env
 .env
 .env.local

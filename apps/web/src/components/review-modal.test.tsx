@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import type { MovieDto } from "@repo/contracts";
-import { ReviewModal } from "./review-modal.js";
+import { ReviewModal } from "./review-modal";
 
 const mockFetchReview = vi.fn();
 vi.mock("@/lib/api/reviews", () => ({

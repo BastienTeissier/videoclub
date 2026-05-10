@@ -1,6 +1,6 @@
-export { cn } from "./lib/utils.js";
-export { Button, buttonVariants, type ButtonProps } from "./components/button.js";
-export { Input, type InputProps } from "./components/input.js";
+export { cn } from "./lib/utils";
+export { Button, buttonVariants, type ButtonProps } from "./components/button";
+export { Input, type InputProps } from "./components/input";
 export {
   Card,
   CardHeader,
@@ -8,10 +8,10 @@ export {
   CardTitle,
   CardDescription,
   CardContent,
-} from "./components/card.js";
-export { Badge, badgeVariants, type BadgeProps } from "./components/badge.js";
-export { ScrollArea, ScrollBar } from "./components/scroll-area.js";
-export { Separator } from "./components/separator.js";
+} from "./components/card";
+export { Badge, badgeVariants, type BadgeProps } from "./components/badge";
+export { ScrollArea, ScrollBar } from "./components/scroll-area";
+export { Separator } from "./components/separator";
 export {
   Toast,
   ToastAction,
@@ -20,9 +20,9 @@ export {
   ToastProvider,
   ToastTitle,
   ToastViewport,
-} from "./components/toast.js";
-export { Toaster } from "./components/toaster.js";
-export { useToast, toast, type ToasterToast } from "./hooks/use-toast.js";
+} from "./components/toast";
+export { Toaster } from "./components/toaster";
+export { useToast, toast, type ToasterToast } from "./hooks/use-toast";
 export {
   Dialog,
   DialogPortal,
@@ -34,7 +34,7 @@ export {
   DialogFooter,
   DialogTitle,
   DialogDescription,
-} from "./components/dialog.js";
-export { Textarea, type TextareaProps } from "./components/textarea.js";
-export { Label } from "./components/label.js";
-export { StarRating, type StarRatingProps } from "./components/star-rating.js";
+} from "./components/dialog";
+export { Textarea, type TextareaProps } from "./components/textarea";
+export { Label } from "./components/label";
+export { StarRating, type StarRatingProps } from "./components/star-rating";

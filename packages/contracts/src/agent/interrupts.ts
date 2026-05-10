@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { movieSchema } from "../domain/movie.js";
+import { movieSchema } from "../domain/movie";
 
 export const jsonSchemaSchema = z.object({}).passthrough();
 export type JsonSchema = z.infer<typeof jsonSchemaSchema>;

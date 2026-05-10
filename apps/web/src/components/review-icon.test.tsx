@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import type { MovieDto } from "@repo/contracts";
-import { ReviewIcon } from "./review-icon.js";
+import { ReviewIcon } from "./review-icon";
 
 let currentRating: number | undefined;
 const mockUpsertReview = vi.fn();

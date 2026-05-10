@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { BookmarkIcon } from "./bookmark-icon.js";
+import { BookmarkIcon } from "./bookmark-icon";
 
 const mockToggleWatchlist = vi.fn();
 let inWatchlist = false;

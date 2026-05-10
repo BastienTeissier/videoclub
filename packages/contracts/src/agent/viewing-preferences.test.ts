@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyPatch } from "./viewing-preferences.js";
+import { applyPatch } from "./viewing-preferences";
 
 describe("applyPatch", () => {
   it("replaces scalar arrays and emits replace ops", () => {
