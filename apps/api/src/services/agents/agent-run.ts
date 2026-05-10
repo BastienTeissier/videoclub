@@ -19,8 +19,14 @@ import { createWatchlistRemoveTool } from "../../features/tools/watchlist-remove
 import { createReviewPrefillTool } from "../../features/tools/review-prefill.js";
 import { createReviewShowTool } from "../../features/tools/review-show.js";
 import { createReviewDeleteTool } from "../../features/tools/review-delete.js";
-import { streamAgUiEvents, stripUiNoise } from "./ag-ui-stream.js";
+import { createUpdatePreferencesTool } from "../../features/tools/update-preferences.js";
+import {
+  streamAgUiEvents,
+  stripUiNoise,
+  type MemoryRef,
+} from "./ag-ui-stream.js";
 import { SYSTEM_PROMPT } from "./system-prompt.js";
+import { formatMemoryForSystemPrompt } from "./memory.js";
 
 interface ReplayedToolCall {
   aiSdkCallId: string | null;
@@ -80,7 +86,11 @@ interface ResumeInput {
   response: unknown;
 }
 
-function buildToolset(db: Database, userId: string): ToolSet {
+function buildToolset(
+  db: Database,
+  userId: string,
+  sessionId: string,
+): ToolSet {
   return {
     discovery: createDiscoveryTool(db),
     search_tmdb: createSearchTmdbTool(db),
@@ -90,6 +100,7 @@ function buildToolset(db: Database, userId: string): ToolSet {
     review_prefill: createReviewPrefillTool(db, userId),
     review_show: createReviewShowTool(db, userId),
     review_delete: createReviewDeleteTool(db, userId),
+    update_preferences: createUpdatePreferencesTool(db, sessionId),
   };
 }
 
@@ -205,11 +216,19 @@ export function agentRun(db: Database) {
     runId: string;
     messages: ModelMessage[];
   }): AsyncGenerator<string> {
+    const memorySnapshot =
+      (await sessions.getViewingPreferences(p.sessionId)) ?? {};
+    const memoryRef: MemoryRef = { snapshot: memorySnapshot };
+    const memorySection = formatMemoryForSystemPrompt(memorySnapshot);
+    const systemPrompt = memorySection
+      ? `${SYSTEM_PROMPT}\n\n${memorySection}`
+      : SYSTEM_PROMPT;
+
     const stream = streamText({
       model: getModel(),
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: p.messages,
-      tools: buildToolset(db, p.userId),
+      tools: buildToolset(db, p.userId, p.sessionId),
       stopWhen: stepCountIs(5),
       onFinish: buildOnFinish(p.runDbId, p.sessionId),
       onError: async ({ error }) => {
@@ -223,6 +242,7 @@ export function agentRun(db: Database) {
     yield* streamAgUiEvents(stream.fullStream, {
       threadId: p.sessionId,
       runId: p.runId,
+      memory: memoryRef,
     });
   }
 
@@ -234,7 +254,12 @@ export function agentRun(db: Database) {
     let session = input.threadId
       ? await sessions.findByIdForUser(input.threadId, input.userId)
       : null;
-    if (!session) session = await sessions.create(input.userId);
+    if (!session) {
+      const seed = await sessions.findLatestViewingPreferencesByUserId(
+        input.userId,
+      );
+      session = await sessions.create(input.userId, seed ?? undefined);
+    }
 
     const lastUserMessage = [...input.messages]
       .reverse()
@@ -320,7 +345,7 @@ export function agentRun(db: Database) {
       throw new Error(`Interrupt does not belong to this session`);
     }
 
-    const tools = buildToolset(db, input.userId);
+    const tools = buildToolset(db, input.userId, session.id);
     const toolName = pending.toolName as keyof typeof tools;
     const tool = tools[toolName];
     if (!tool || typeof tool.execute !== "function") {

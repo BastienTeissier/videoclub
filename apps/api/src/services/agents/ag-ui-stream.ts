@@ -1,16 +1,25 @@
 import { EventEncoder } from "@ag-ui/encoder";
 import { EventType } from "@ag-ui/core";
 import type { TextStreamPart, ToolSet } from "ai";
+import type { Operation } from "fast-json-patch";
 import {
   clarificationInterrupt,
   type A2UIMessage,
   type Interrupt,
   type MovieDto,
+  type ViewingPreferences,
 } from "@repo/contracts";
+import { toAgUiDelta } from "./json-patch-adapter.js";
+import { computeAppliedKeys } from "./memory.js";
+
+export interface MemoryRef {
+  snapshot: ViewingPreferences;
+}
 
 interface StreamAgUiOptions {
   threadId: string;
   runId: string;
+  memory?: MemoryRef;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -39,9 +48,32 @@ function extractWarnings(output: unknown): unknown[] {
 export function stripUiNoise(output: unknown): unknown {
   if (!output || typeof output !== "object") return output;
   const obj = output as Record<string, unknown>;
-  if (!("a2uiMessages" in obj) && !("warnings" in obj)) return output;
-  const { a2uiMessages: _a, warnings: _w, ...rest } = obj;
+  if (
+    !("a2uiMessages" in obj) &&
+    !("warnings" in obj) &&
+    !("jsonPatchOps" in obj)
+  )
+    return output;
+  const {
+    a2uiMessages: _a,
+    warnings: _w,
+    jsonPatchOps: _j,
+    ...rest
+  } = obj;
   return rest;
+}
+
+function extractMemoryDelta(
+  output: unknown,
+): { snapshot: ViewingPreferences; jsonPatchOps: Operation[] } | null {
+  if (!output || typeof output !== "object") return null;
+  const o = output as { data?: unknown; jsonPatchOps?: unknown };
+  if (!Array.isArray(o.jsonPatchOps)) return null;
+  if (!o.data || typeof o.data !== "object") return null;
+  return {
+    snapshot: o.data as ViewingPreferences,
+    jsonPatchOps: o.jsonPatchOps as Operation[],
+  };
 }
 
 function asNeedsClarification(
@@ -140,6 +172,7 @@ async function* emitToolResult(
   output: unknown,
   encoder: EventEncoder,
   pendingInterrupts: Interrupt[],
+  memory: MemoryRef | undefined,
 ): AsyncGenerator<string> {
   const clarification = asNeedsClarification(output);
   if (clarification) {
@@ -168,6 +201,16 @@ async function* emitToolResult(
       name: "warning",
       value: warning,
     });
+  }
+  if (memory) {
+    const memoryDelta = extractMemoryDelta(output);
+    if (memoryDelta) {
+      yield encoder.encode({
+        type: EventType.STATE_DELTA,
+        delta: toAgUiDelta(memoryDelta.jsonPatchOps),
+      });
+      memory.snapshot = memoryDelta.snapshot;
+    }
   }
   yield encoder.encode({
     type: EventType.TOOL_CALL_RESULT,
@@ -203,7 +246,7 @@ function encodeError(encoder: EventEncoder, err: unknown): string {
 
 export async function* streamAgUiEvents(
   fullStream: AsyncIterable<TextStreamPart<ToolSet>>,
-  { threadId, runId }: StreamAgUiOptions,
+  { threadId, runId, memory }: StreamAgUiOptions,
 ): AsyncGenerator<string> {
   const encoder = new EventEncoder();
   const state: TextState = { textStarted: false, messageId: `msg-${runId}` };
@@ -212,6 +255,12 @@ export async function* streamAgUiEvents(
   const pendingInterrupts: Interrupt[] = [];
 
   yield encoder.encode({ type: EventType.RUN_STARTED, threadId, runId });
+  if (memory) {
+    yield encoder.encode({
+      type: EventType.STATE_SNAPSHOT,
+      snapshot: memory.snapshot,
+    });
+  }
 
   try {
     for await (const part of fullStream) {
@@ -229,6 +278,19 @@ export async function* streamAgUiEvents(
             part.input,
             encoder,
           );
+          if (memory && part.toolName === "discovery") {
+            const filters = (
+              part.input as { filters?: Record<string, unknown> } | undefined
+            )?.filters;
+            const applied = computeAppliedKeys(filters, memory.snapshot);
+            if (applied.length > 0) {
+              yield encoder.encode({
+                type: EventType.CUSTOM,
+                name: "memory-applied",
+                value: { keys: applied },
+              });
+            }
+          }
           break;
         case "tool-result":
           yield* emitToolResult(
@@ -236,6 +298,7 @@ export async function* streamAgUiEvents(
             part.output,
             encoder,
             pendingInterrupts,
+            memory,
           );
           break;
         case "tool-approval-request": {

@@ -429,4 +429,264 @@ describe("stripUiNoise", () => {
     expect(stripUiNoise("string")).toBe("string");
     expect(stripUiNoise(42)).toBe(42);
   });
+
+  it("strips jsonPatchOps from update_preferences-shaped output", () => {
+    const out = stripUiNoise({
+      data: { genres: ["Comedy"] },
+      jsonPatchOps: [{ op: "add", path: "/genres", value: ["Comedy"] }],
+    });
+    expect(out).toEqual({ data: { genres: ["Comedy"] } });
+  });
+});
+
+describe("streamAgUiEvents — memory state", () => {
+  const baseOptions = { threadId: "thread-1", runId: "run-1" };
+
+  function parseEvent(encoded: string): Record<string, unknown> {
+    return JSON.parse(encoded.replace(/^data: /, "").replace(/\n\n$/, ""));
+  }
+
+  it("emits STATE_SNAPSHOT immediately after RUN_STARTED when memory is provided", async () => {
+    const memory = { snapshot: { genres: ["Comedy"] } };
+    const stream = streamAgUiEvents(mockStream([]), {
+      ...baseOptions,
+      memory,
+    });
+    const events = await collectEvents(stream);
+    const types = events.map(parseEventType);
+
+    expect(types[0]).toBe("RUN_STARTED");
+    expect(types[1]).toBe("STATE_SNAPSHOT");
+    const snap = parseEvent(events[1]!);
+    expect(snap.snapshot).toEqual({ genres: ["Comedy"] });
+  });
+
+  it("emits STATE_SNAPSHOT with an empty snapshot", async () => {
+    const stream = streamAgUiEvents(mockStream([]), {
+      ...baseOptions,
+      memory: { snapshot: {} },
+    });
+    const events = await collectEvents(stream);
+    expect(parseEventType(events[1]!)).toBe("STATE_SNAPSHOT");
+    expect(parseEvent(events[1]!).snapshot).toEqual({});
+  });
+
+  it("does not emit STATE_SNAPSHOT when memory is undefined", async () => {
+    const stream = streamAgUiEvents(mockStream([]), baseOptions);
+    const events = await collectEvents(stream);
+    expect(events.map(parseEventType)).not.toContain("STATE_SNAPSHOT");
+  });
+
+  it("emits STATE_DELTA before TOOL_CALL_RESULT for update_preferences results", async () => {
+    const memory = { snapshot: {} as Record<string, unknown> };
+    const ops = [
+      { op: "add", path: "/genres", value: ["Comedy"] },
+    ];
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "update_preferences",
+        input: { genres: ["Comedy"] },
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-result",
+        toolCallId: "tc-1",
+        toolName: "update_preferences",
+        input: { genres: ["Comedy"] },
+        output: { data: { genres: ["Comedy"] }, jsonPatchOps: ops },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), {
+      ...baseOptions,
+      memory,
+    });
+    const events = await collectEvents(stream);
+    const types = events.map(parseEventType);
+    const deltaIdx = types.indexOf("STATE_DELTA");
+    const resultIdx = types.indexOf("TOOL_CALL_RESULT");
+    expect(deltaIdx).toBeGreaterThan(-1);
+    expect(deltaIdx).toBeLessThan(resultIdx);
+
+    const delta = parseEvent(events[deltaIdx]!);
+    expect(delta.delta).toEqual(ops);
+  });
+
+  it("mutates memoryRef.snapshot after emitting STATE_DELTA", async () => {
+    const memory = { snapshot: {} as Record<string, unknown> };
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "update_preferences",
+        input: { genres: ["Drama"] },
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-result",
+        toolCallId: "tc-1",
+        toolName: "update_preferences",
+        input: { genres: ["Drama"] },
+        output: {
+          data: { genres: ["Drama"] },
+          jsonPatchOps: [{ op: "add", path: "/genres", value: ["Drama"] }],
+        },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    await collectEvents(
+      streamAgUiEvents(mockStream(parts), { ...baseOptions, memory }),
+    );
+
+    expect(memory.snapshot).toEqual({ genres: ["Drama"] });
+  });
+
+  it("emits CUSTOM:memory-applied between TOOL_CALL_END and TOOL_CALL_RESULT for discovery with overlapping filters", async () => {
+    const memory = { snapshot: { genres: ["Comedy"] } };
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: { view: "grid", filters: { genres: ["Comedy"] } },
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-result",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: { view: "grid", filters: { genres: ["Comedy"] } },
+        output: { data: { movies: [], view: "grid" } },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), {
+      ...baseOptions,
+      memory,
+    });
+    const events = await collectEvents(stream);
+    const memoryAppliedIdx = events.findIndex(
+      (e) => parseEventType(e) === "CUSTOM" && e.includes('"name":"memory-applied"'),
+    );
+    const endIdx = events.map(parseEventType).indexOf("TOOL_CALL_END");
+    const resultIdx = events.map(parseEventType).indexOf("TOOL_CALL_RESULT");
+    expect(memoryAppliedIdx).toBeGreaterThan(endIdx);
+    expect(memoryAppliedIdx).toBeLessThan(resultIdx);
+
+    const event = parseEvent(events[memoryAppliedIdx]!);
+    expect((event.value as { keys: string[] }).keys).toEqual(["genres"]);
+  });
+
+  it("does not emit memory-applied when discovery filters are absent", async () => {
+    const memory = { snapshot: { genres: ["Comedy"] } };
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: { view: "grid" },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), {
+      ...baseOptions,
+      memory,
+    });
+    const events = await collectEvents(stream);
+    const memoryApplied = events.find((e) =>
+      e.includes('"name":"memory-applied"'),
+    );
+    expect(memoryApplied).toBeUndefined();
+  });
+
+  it("does not emit memory-applied when filters do not overlap the snapshot", async () => {
+    const memory = { snapshot: { genres: ["Comedy"] } };
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "discovery",
+        input: { view: "grid", filters: { title: "Dune" } },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), {
+      ...baseOptions,
+      memory,
+    });
+    const events = await collectEvents(stream);
+    const memoryApplied = events.find((e) =>
+      e.includes('"name":"memory-applied"'),
+    );
+    expect(memoryApplied).toBeUndefined();
+  });
+
+  it("emits memory-applied against an in-flight snapshot updated by a prior STATE_DELTA", async () => {
+    const memory = { snapshot: {} as Record<string, unknown> };
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "update_preferences",
+        input: { genres: ["Comedy"] },
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-result",
+        toolCallId: "tc-1",
+        toolName: "update_preferences",
+        input: { genres: ["Comedy"] },
+        output: {
+          data: { genres: ["Comedy"] },
+          jsonPatchOps: [{ op: "add", path: "/genres", value: ["Comedy"] }],
+        },
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-call",
+        toolCallId: "tc-2",
+        toolName: "discovery",
+        input: { view: "grid", filters: { genres: ["Comedy"] } },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), {
+      ...baseOptions,
+      memory,
+    });
+    const events = await collectEvents(stream);
+    const memoryApplied = events.find((e) =>
+      e.includes('"name":"memory-applied"'),
+    );
+    expect(memoryApplied).toBeDefined();
+    expect(memoryApplied).toContain('"keys":["genres"]');
+  });
+
+  it("strips jsonPatchOps from update_preferences TOOL_CALL_RESULT content", async () => {
+    const memory = { snapshot: {} as Record<string, unknown> };
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-1",
+        toolName: "update_preferences",
+        input: { genres: ["Comedy"] },
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-result",
+        toolCallId: "tc-1",
+        toolName: "update_preferences",
+        input: { genres: ["Comedy"] },
+        output: {
+          data: { genres: ["Comedy"] },
+          jsonPatchOps: [{ op: "add", path: "/genres", value: ["Comedy"] }],
+        },
+      } as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), {
+      ...baseOptions,
+      memory,
+    });
+    const events = await collectEvents(stream);
+    const resultEvent = events.find((e) => parseEventType(e) === "TOOL_CALL_RESULT")!;
+    expect(resultEvent).not.toContain("jsonPatchOps");
+    expect(resultEvent).toContain("\\\"data\\\"");
+  });
 });

@@ -34,6 +34,9 @@ vi.mock("../../features/tools/review-show.js", () => ({
 vi.mock("../../features/tools/review-delete.js", () => ({
   createReviewDeleteTool: vi.fn(() => ({ type: "review_delete_tool" })),
 }));
+vi.mock("../../features/tools/update-preferences.js", () => ({
+  createUpdatePreferencesTool: vi.fn(() => ({ type: "update_preferences_tool" })),
+}));
 
 vi.mock("./ag-ui-stream.js", () => ({
   streamAgUiEvents: vi.fn(async function* () {
@@ -53,6 +56,8 @@ const mockFindBySessionId = vi.fn();
 const mockSessionCreate = vi.fn();
 const mockSessionFindById = vi.fn();
 const mockSessionFindByIdForUser = vi.fn();
+const mockFindLatestViewingPrefs = vi.fn();
+const mockGetViewingPreferences = vi.fn();
 const mockCreateRun = vi.fn();
 const mockCreateToolCall = vi.fn();
 const mockCompleteToolCall = vi.fn();
@@ -71,6 +76,8 @@ vi.mock("@repo/db", () => ({
     create: mockSessionCreate,
     findById: mockSessionFindById,
     findByIdForUser: mockSessionFindByIdForUser,
+    findLatestViewingPreferencesByUserId: mockFindLatestViewingPrefs,
+    getViewingPreferences: mockGetViewingPreferences,
   })),
   agentRunsRepository: vi.fn(() => ({
     createRun: mockCreateRun,
@@ -124,6 +131,8 @@ beforeEach(() => {
   mockSessionCreate.mockResolvedValue({ id: "session-1" });
   mockSessionFindById.mockResolvedValue({ id: "session-1" });
   mockSessionFindByIdForUser.mockResolvedValue({ id: "session-1" });
+  mockFindLatestViewingPrefs.mockResolvedValue(null);
+  mockGetViewingPreferences.mockResolvedValue({});
   mockFindRunById.mockResolvedValue({ id: "run-1", sessionId: "session-1" });
   mockMessageCreate.mockResolvedValue({ id: "msg-1" });
   mockFindBySessionId.mockResolvedValue([
@@ -156,6 +165,7 @@ describe("agentRun.start", () => {
           review_prefill: expect.anything(),
           review_show: expect.anything(),
           review_delete: expect.anything(),
+          update_preferences: expect.anything(),
         }),
       }),
     );
@@ -528,9 +538,119 @@ describe("agentRun.start ownership", () => {
       "someone-elses-session",
       "user-1",
     );
-    expect(mockSessionCreate).toHaveBeenCalledWith("user-1");
+    expect(mockSessionCreate).toHaveBeenCalledWith("user-1", undefined);
     expect(mockCreateRun).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "session-new" }),
+    );
+  });
+});
+
+describe("agentRun memory seeding + system-prompt", () => {
+  it("seeds a new session from the latest user prefs when no threadId", async () => {
+    mockFindLatestViewingPrefs.mockResolvedValue({ genres: ["Comedy"] });
+    mockSessionCreate.mockResolvedValue({
+      id: "session-seeded",
+      viewingPreferences: { genres: ["Comedy"] },
+    });
+    mockGetViewingPreferences.mockResolvedValue({ genres: ["Comedy"] });
+
+    await drain(
+      agentRun(fakeDb).start({
+        userId: "user-1",
+        runId: "ag-run-1",
+        messages: [{ role: "user", content: "find me something" }],
+      }),
+    );
+
+    expect(mockFindLatestViewingPrefs).toHaveBeenCalledWith("user-1");
+    expect(mockSessionCreate).toHaveBeenCalledWith("user-1", {
+      genres: ["Comedy"],
+    });
+  });
+
+  it("creates an empty session when the user has no prior prefs", async () => {
+    mockFindLatestViewingPrefs.mockResolvedValue(null);
+
+    await drain(
+      agentRun(fakeDb).start({
+        userId: "user-fresh",
+        runId: "ag-run-1",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    );
+
+    expect(mockFindLatestViewingPrefs).toHaveBeenCalledWith("user-fresh");
+    expect(mockSessionCreate).toHaveBeenCalledWith("user-fresh", undefined);
+  });
+
+  it("reuses the session for an owned threadId without seeding", async () => {
+    mockSessionFindByIdForUser.mockResolvedValue({ id: "session-existing" });
+
+    await drain(
+      agentRun(fakeDb).start({
+        userId: "user-1",
+        threadId: "session-existing",
+        runId: "ag-run-1",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    );
+
+    expect(mockSessionFindByIdForUser).toHaveBeenCalledWith(
+      "session-existing",
+      "user-1",
+    );
+    expect(mockFindLatestViewingPrefs).not.toHaveBeenCalled();
+    expect(mockSessionCreate).not.toHaveBeenCalled();
+  });
+
+  it("appends the formatted memory section to the system prompt when memory is non-empty", async () => {
+    mockGetViewingPreferences.mockResolvedValue({ genres: ["Comedy"] });
+
+    await drain(
+      agentRun(fakeDb).start({
+        userId: "user-1",
+        runId: "ag-run-1",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    );
+
+    const call = mockStreamText.mock.calls[0]![0] as Record<string, unknown>;
+    expect(call.system).toContain("Preferred genres: Comedy");
+  });
+
+  it("leaves the system prompt unchanged when memory is empty", async () => {
+    mockGetViewingPreferences.mockResolvedValue({});
+
+    await drain(
+      agentRun(fakeDb).start({
+        userId: "user-1",
+        runId: "ag-run-1",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    );
+
+    const call = mockStreamText.mock.calls[0]![0] as Record<string, unknown>;
+    expect(call.system).not.toContain("User viewing preferences");
+  });
+
+  it("passes a memory ref carrying the seeded snapshot to streamAgUiEvents", async () => {
+    mockGetViewingPreferences.mockResolvedValue({ genres: ["Comedy"] });
+    const streamModule = await import("./ag-ui-stream.js");
+    const streamSpy = vi.mocked(streamModule.streamAgUiEvents);
+
+    await drain(
+      agentRun(fakeDb).start({
+        userId: "user-1",
+        runId: "ag-run-1",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    );
+
+    expect(streamSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        memory: { snapshot: { genres: ["Comedy"] } },
+      }),
     );
   });
 });
