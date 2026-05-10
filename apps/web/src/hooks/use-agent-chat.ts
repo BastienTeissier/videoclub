@@ -9,10 +9,16 @@ import {
   a2uiMessageSchema,
   interruptRunFinishedResultSchema,
   jsonPatchOpsSchema,
+  pendingInterruptResponseSchema,
   viewingPreferencesSchema,
   type Interrupt,
 } from "@repo/contracts";
 import type { HttpAgent, Message } from "@ag-ui/client";
+
+export interface FieldIssue {
+  path: (string | number)[];
+  message: string;
+}
 
 interface ChatMessage {
   id: string;
@@ -34,6 +40,7 @@ export function useAgentChat() {
   const [pendingInterrupt, setPendingInterrupt] = useState<Interrupt | null>(
     null,
   );
+  const [interruptIssues, setInterruptIssues] = useState<FieldIssue[]>([]);
   const [toolResults, setToolResults] = useState<ToolResult[]>([]);
 
   const agentRef = useRef<HttpAgent | null>(null);
@@ -142,6 +149,11 @@ export function useAgentChat() {
         const parsed = interruptRunFinishedResultSchema.safeParse(result);
         if (parsed.success && parsed.data.interrupts.length > 0) {
           setPendingInterrupt(parsed.data.interrupts[0]!);
+        } else {
+          // Resume completed without a fresh interrupt → close the dialog and
+          // clear any field errors from a prior 422 response.
+          setPendingInterrupt(null);
+          setInterruptIssues([]);
         }
       },
 
@@ -199,7 +211,7 @@ export function useAgentChat() {
       if (!agentRef.current) return;
 
       setIsLoading(true);
-      setPendingInterrupt(null);
+      setInterruptIssues([]);
       pendingToolCallNamesRef.current.clear();
 
       try {
@@ -208,6 +220,13 @@ export function useAgentChat() {
         });
       } catch (err) {
         setIsLoading(false);
+        // Server returned 422 with field issues → keep the dialog open so
+        // the user can correct their input without retyping.
+        const issues = await extractIssuesFrom422(err);
+        if (issues) {
+          setInterruptIssues(issues);
+          return;
+        }
         setError(
           err instanceof Error ? err.message : "Failed to respond to interrupt",
         );
@@ -218,6 +237,33 @@ export function useAgentChat() {
 
   const cancelInterrupt = useCallback(() => {
     setPendingInterrupt(null);
+    setInterruptIssues([]);
+  }, []);
+
+  // Reload-recovery: on mount, fetch the latest unresolved interrupt and
+  // replay the surface it owned so the dialog re-opens automatically.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/v1/chat/pending-interrupt", {
+          credentials: "include",
+        });
+        if (!res.ok || cancelled) return;
+        const body = (await res.json()) as { data: unknown };
+        const parsed = pendingInterruptResponseSchema.safeParse(body.data);
+        if (!parsed.success || !parsed.data || cancelled) return;
+        for (const msg of parsed.data.a2uiMessages) applyMessage(msg);
+        threadIdRef.current = parsed.data.threadId;
+        setPendingInterrupt(parsed.data.interrupt);
+      } catch {
+        // Network error on bootstrap is non-fatal — the dialog can be
+        // re-opened on the next reload.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return {
@@ -225,9 +271,46 @@ export function useAgentChat() {
     isLoading,
     error,
     pendingInterrupt,
+    interruptIssues,
     toolResults,
     sendMessage,
     respondToInterrupt,
     cancelInterrupt,
   };
+}
+
+async function extractIssuesFrom422(err: unknown): Promise<FieldIssue[] | null> {
+  const candidate = err as
+    | { status?: number; json?: () => Promise<unknown> }
+    | Response;
+  const status =
+    candidate instanceof Response
+      ? candidate.status
+      : (candidate as { status?: number }).status;
+  if (status !== 422) return null;
+  try {
+    const body =
+      candidate instanceof Response
+        ? await candidate.json()
+        : await (candidate as { json: () => Promise<unknown> }).json();
+    const issues = (body as { issues?: unknown }).issues;
+    if (!Array.isArray(issues)) return null;
+    return issues
+      .map((i): FieldIssue | null => {
+        if (!i || typeof i !== "object") return null;
+        const path = (i as { path?: unknown }).path;
+        const message = (i as { message?: unknown }).message;
+        if (!Array.isArray(path) || typeof message !== "string") return null;
+        return {
+          path: path.filter(
+            (p): p is string | number =>
+              typeof p === "string" || typeof p === "number",
+          ),
+          message,
+        };
+      })
+      .filter((i): i is FieldIssue => i !== null);
+  } catch {
+    return null;
+  }
 }

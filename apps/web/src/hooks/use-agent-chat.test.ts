@@ -34,6 +34,13 @@ beforeEach(() => {
     },
   );
   mockRunAgent.mockResolvedValue({});
+  // Default fetch stub: bootstrap returns no pending interrupt.
+  globalThis.fetch = vi.fn(async () => {
+    return new Response(JSON.stringify({ data: null }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
 });
 
 describe("useAgentChat", () => {
@@ -200,6 +207,181 @@ describe("useAgentChat", () => {
           response: { pickedMovieId: "movie-42" },
         },
       },
+    });
+
+    // pendingInterrupt only clears once the resume completes without a fresh
+    // interrupt (server is the source of truth — UF4 keeps the dialog open
+    // on 422 by leaving pendingInterrupt set).
+    act(() => {
+      subscriberCallbacks.onRunFinishedEvent?.({
+        event: {},
+        messages: [],
+        state: {},
+        agent: {},
+        input: {},
+      });
+    });
+    expect(result.current.pendingInterrupt).toBeNull();
+  });
+
+  it("respondToInterrupt 422 path: populates interruptIssues and keeps pendingInterrupt set", async () => {
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
+
+    await act(async () => {
+      await result.current.sendMessage("commit a movie");
+    });
+
+    act(() => {
+      subscriberCallbacks.onRunFinishedEvent?.({
+        event: {
+          result: {
+            type: "interrupt",
+            interrupts: [
+              {
+                id: "call_commit",
+                reason: "approval",
+                message: "Confirm",
+                proposed: {},
+                responseSchema: { type: "object" },
+              },
+            ],
+          },
+        },
+        messages: [],
+        state: {},
+        agent: {},
+        input: {},
+      });
+    });
+
+    const tooLong = "x".repeat(1001);
+    mockRunAgent.mockRejectedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: "Invalid response",
+          issues: [
+            {
+              path: ["editedReason"],
+              message: "String must contain at most 1000 character(s)",
+            },
+          ],
+        }),
+        { status: 422, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await act(async () => {
+      await result.current.respondToInterrupt("call_commit", {
+        approved: true,
+        editedReason: tooLong,
+      });
+    });
+
+    expect(result.current.pendingInterrupt?.id).toBe("call_commit");
+    expect(result.current.interruptIssues).toEqual([
+      {
+        path: ["editedReason"],
+        message: "String must contain at most 1000 character(s)",
+      },
+    ]);
+  });
+
+  it("clears pendingInterrupt and interruptIssues when run finishes without an interrupt", async () => {
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
+
+    await act(async () => {
+      await result.current.sendMessage("commit a movie");
+    });
+
+    act(() => {
+      subscriberCallbacks.onRunFinishedEvent?.({
+        event: {
+          result: {
+            type: "interrupt",
+            interrupts: [
+              {
+                id: "call_commit",
+                reason: "approval",
+                message: "x",
+                proposed: {},
+                responseSchema: { type: "object" },
+              },
+            ],
+          },
+        },
+        messages: [],
+        state: {},
+        agent: {},
+        input: {},
+      });
+    });
+    expect(result.current.pendingInterrupt).not.toBeNull();
+
+    act(() => {
+      subscriberCallbacks.onRunFinishedEvent?.({
+        event: {},
+        messages: [],
+        state: {},
+        agent: {},
+        input: {},
+      });
+    });
+
+    expect(result.current.pendingInterrupt).toBeNull();
+    expect(result.current.interruptIssues).toEqual([]);
+  });
+
+  it("bootstraps from /chat/pending-interrupt and seeds the surface", async () => {
+    const PICKED = "11111111-1111-4111-8111-111111111111";
+    const BACKUP = "22222222-2222-4222-8222-222222222222";
+    const a2uiMessages = [
+      {
+        createSurface: { surfaceId: "discovery", catalogId: "videoclub" },
+      },
+      {
+        updateDataModel: {
+          surfaceId: "discovery",
+          path: "/movies",
+          value: [],
+        },
+      },
+    ];
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            interrupt: {
+              id: "tc-c",
+              reason: "approval",
+              message: "Confirm",
+              proposed: {
+                pickedMovieId: PICKED,
+                backupMovieIds: [BACKUP],
+                reason: "vibe",
+              },
+              responseSchema: { type: "object" },
+            },
+            threadId: "33333333-3333-4333-8333-333333333333",
+            a2uiMessages,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    ) as typeof fetch;
+
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.pendingInterrupt?.id).toBe("tc-c");
+  });
+
+  it("bootstrap with null data leaves state untouched", async () => {
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
+    await act(async () => {
+      await Promise.resolve();
     });
     expect(result.current.pendingInterrupt).toBeNull();
   });
