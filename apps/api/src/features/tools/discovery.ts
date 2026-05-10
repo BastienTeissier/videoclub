@@ -8,6 +8,7 @@ import {
 import { moviesRepository, type Database } from "@repo/db";
 import { searchMoviesData } from "./search-movies.js";
 import { movieToDto } from "./movie-to-dto.js";
+import { resolveComparisonCells } from "./comparison-cells.js";
 import {
   discoveryGridMessages,
   discoveryComparisonMessages,
@@ -115,20 +116,23 @@ ${MOVIE_ID_FORMAT_RULE}`,
           });
         }
         const movies: MovieDto[] = rows.map(movieToDto);
+        const criteria = input.comparisonCriteria ?? [];
+        const cells = resolveComparisonCells(movies, criteria);
         return {
           data: {
             movies,
             view: "comparison" as const,
             requestedView,
             shortlistMovieIds: ids,
-            comparisonCriteria: input.comparisonCriteria ?? [],
+            comparisonCriteria: criteria,
             ...(unresolved.length ? { unresolvedIds: unresolved } : {}),
           },
           a2uiMessages: discoveryComparisonMessages({
             surfaceId: SURFACE_ID,
             movies,
             shortlistIds: rows.map((r) => r.id),
-            criteria: input.comparisonCriteria,
+            criteria,
+            cells,
           }),
           ...(warnings.length ? { warnings } : {}),
         };

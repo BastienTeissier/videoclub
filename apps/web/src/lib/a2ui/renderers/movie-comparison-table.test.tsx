@@ -35,6 +35,7 @@ function seed(opts: {
   movies: ReturnType<typeof fakeMovie>[];
   shortlistIds: string[];
   criteria: string[];
+  cells?: Record<string, Record<string, string>>;
 }) {
   applyMessage({
     createSurface: { surfaceId: "discovery", catalogId: "videoclub" },
@@ -59,7 +60,11 @@ function seed(opts: {
     updateDataModel: {
       surfaceId: "discovery",
       path: "/comparison",
-      value: { shortlistIds: opts.shortlistIds, criteria: opts.criteria },
+      value: {
+        shortlistIds: opts.shortlistIds,
+        criteria: opts.criteria,
+        cells: opts.cells ?? {},
+      },
     },
   });
 }
@@ -96,25 +101,27 @@ describe("MovieComparisonTable", () => {
     expect(rows).toHaveLength(2); // header + 1 data row
   });
 
-  it("known criterion renders cell value", () => {
+  it("renders server-resolved cell values", () => {
     seed({
       movies: [fakeMovie("a", { runtime: 95 })],
       shortlistIds: ["a"],
       criteria: ["runtime"],
+      cells: { a: { runtime: "95 min" } },
     });
     render(<MovieComparisonTable node={node} surfaceId="discovery" />);
     expect(screen.getByText("95 min")).toBeInTheDocument();
   });
 
-  it("unknown criterion renders empty cell with header", () => {
+  it("unknown criterion renders em-dash placeholder when cell is missing", () => {
     seed({
       movies: [fakeMovie("a")],
       shortlistIds: ["a"],
       criteria: ["vibes"],
+      // server resolved unknown criterion to placeholder
+      cells: { a: { vibes: "—" } },
     });
     render(<MovieComparisonTable node={node} surfaceId="discovery" />);
     expect(screen.getByText("vibes")).toBeInTheDocument();
-    // The single data cell for the unknown criterion shows the em-dash fallback.
     const dashes = screen.getAllByText("—");
     expect(dashes.length).toBeGreaterThanOrEqual(1);
   });

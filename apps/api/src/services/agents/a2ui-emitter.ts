@@ -127,11 +127,15 @@ export function discoveryComparisonMessages({
   movies,
   shortlistIds,
   criteria,
+  cells,
 }: {
   surfaceId?: string;
   movies: MovieDto[];
   shortlistIds: string[];
   criteria?: string[];
+  // Server-resolved cell values: cells[movieId][criterion] → display string.
+  // Renderer reads these directly instead of computing per-criterion locally.
+  cells?: Record<string, Record<string, string>>;
 }): A2UIMessage[] {
   return [
     createSurface(surfaceId, VIDEOCLUB_CATALOG_ID),
@@ -147,6 +151,7 @@ export function discoveryComparisonMessages({
     updateDataModel(surfaceId, "/comparison", {
       shortlistIds,
       criteria: criteria ?? [],
+      cells: cells ?? {},
     }),
   ];
 }

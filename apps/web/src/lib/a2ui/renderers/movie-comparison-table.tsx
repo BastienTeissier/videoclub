@@ -10,14 +10,11 @@ import type { RendererProps } from "../renderer-types";
 interface ComparisonState {
   shortlistIds?: string[];
   criteria?: string[];
+  // cells[movieId][criterion] resolved server-side; "—" placeholder when unknown.
+  cells?: Record<string, Record<string, string>>;
 }
 
-const CELL_GETTERS: Record<string, (m: MovieDto) => string> = {
-  runtime: (m) => (m.runtime ? `${m.runtime} min` : "—"),
-  year: (m) => (m.year ? String(m.year) : "—"),
-  director: (m) => m.directors?.[0] ?? "—",
-  genres: (m) => (m.genres ?? []).join(", ") || "—",
-};
+const PLACEHOLDER = "—";
 
 export function MovieComparisonTable({ node, surfaceId }: RendererProps) {
   const surface = useA2UISurface(surfaceId);
@@ -27,6 +24,7 @@ export function MovieComparisonTable({ node, surfaceId }: RendererProps) {
   const movies = (get(surface?.dataModel, "/movies") as MovieDto[] | undefined) ?? [];
   const ids = state.shortlistIds ?? [];
   const criteria = state.criteria ?? [];
+  const cells = state.cells ?? {};
   const rows = ids
     .map((id) => movies.find((m) => m.id === id))
     .filter((m): m is MovieDto => Boolean(m));
@@ -80,7 +78,7 @@ export function MovieComparisonTable({ node, surfaceId }: RendererProps) {
               {m.year ? ` (${m.year})` : ""}
             </td>
             {criteria.map((c) => (
-              <td key={c}>{(CELL_GETTERS[c] ?? (() => "—"))(m)}</td>
+              <td key={c}>{cells[m.id]?.[c] ?? PLACEHOLDER}</td>
             ))}
           </tr>
         ))}

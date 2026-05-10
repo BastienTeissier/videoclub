@@ -113,9 +113,20 @@ describe("discoveryComparisonMessages", () => {
       "/comparison",
     );
     expect(
-      (messages[3] as { updateDataModel: { value: { criteria: string[]; shortlistIds: string[] } } })
-        .updateDataModel.value,
-    ).toEqual({ shortlistIds: ["id-a", "id-b", "id-c"], criteria: ["runtime", "mood"] });
+      (messages[3] as {
+        updateDataModel: {
+          value: {
+            criteria: string[];
+            shortlistIds: string[];
+            cells: Record<string, Record<string, string>>;
+          };
+        };
+      }).updateDataModel.value,
+    ).toEqual({
+      shortlistIds: ["id-a", "id-b", "id-c"],
+      criteria: ["runtime", "mood"],
+      cells: {},
+    });
   });
 
   it("preserves caller order in /movies (no popularity sort)", () => {
