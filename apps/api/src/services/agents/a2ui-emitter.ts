@@ -23,17 +23,31 @@ interface DiscoveryFilters {
 
 export type DiscoveryView = "grid" | "comparison" | "night-plan";
 
-interface DiscoverySurfaceArgs {
-  surfaceId?: string;
-  view?: DiscoveryView;
-  filters?: DiscoveryFilters;
-  movies: MovieDto[];
-  shortlistIds?: string[];
-  criteria?: string[];
-  pickedMovieId?: string;
-  backupMovieIds?: string[];
-  reason?: string | null;
-}
+// Discriminated by `view` so the type system enforces the per-variant required
+// fields (e.g. night-plan requires pickedMovieId, comparison requires shortlistIds).
+// Defaults to "grid" when view is omitted.
+type DiscoverySurfaceArgs =
+  | {
+      surfaceId?: string;
+      view?: "grid";
+      filters?: DiscoveryFilters;
+      movies: MovieDto[];
+    }
+  | {
+      surfaceId?: string;
+      view: "comparison";
+      movies: MovieDto[];
+      shortlistIds: string[];
+      criteria?: string[];
+    }
+  | {
+      surfaceId?: string;
+      view: "night-plan";
+      movies: MovieDto[];
+      pickedMovieId: string;
+      backupMovieIds?: string[];
+      reason?: string | null;
+    };
 
 interface GridStateValue<T> {
   items: T[];
@@ -172,20 +186,19 @@ export function discoveryNightPlanMessages({
 export function discoverySurfaceMessages(
   args: DiscoverySurfaceArgs,
 ): A2UIMessage[] {
-  const view = args.view ?? "grid";
-  if (view === "comparison") {
+  if (args.view === "comparison") {
     return discoveryComparisonMessages({
       surfaceId: args.surfaceId,
       movies: args.movies,
-      shortlistIds: args.shortlistIds ?? [],
+      shortlistIds: args.shortlistIds,
       criteria: args.criteria,
     });
   }
-  if (view === "night-plan") {
+  if (args.view === "night-plan") {
     return discoveryNightPlanMessages({
       surfaceId: args.surfaceId,
       movies: args.movies,
-      pickedMovieId: args.pickedMovieId ?? "",
+      pickedMovieId: args.pickedMovieId,
       backupMovieIds: args.backupMovieIds,
       reason: args.reason,
     });
