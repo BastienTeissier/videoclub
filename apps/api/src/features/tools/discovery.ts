@@ -63,7 +63,7 @@ Movie id format: shortlistMovieIds, pickedMovieId, and backupMovieIds MUST be va
         requestedView,
       );
       const warnings: ToolWarning[] = [];
-      let effectiveView: DiscoveryView = isValidView
+      const effectiveView: DiscoveryView = isValidView
         ? (requestedView as DiscoveryView)
         : "grid";
       if (!isValidView) {

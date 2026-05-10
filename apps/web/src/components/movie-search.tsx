@@ -100,13 +100,16 @@ export function MovieSearch() {
     !!reviewsSurface ||
     !!reviewFormSurface;
 
-  const lastAssistantText = (() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i]!;
-      if (m.role === "assistant" && m.content.trim().length > 0) return m.content;
-    }
-    return null;
-  })();
+  const shouldRenderText = !hasProtocolSurface && !pendingInterrupt;
+  const lastAssistantText = shouldRenderText
+    ? (() => {
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const m = messages[i]!;
+          if (m.role === "assistant" && m.content.trim().length > 0) return m.content;
+        }
+        return null;
+      })()
+    : null;
 
   const surfaceIds = [
     ...(discoverySurface ? (["discovery"] as const) : []),
@@ -196,7 +199,7 @@ export function MovieSearch() {
         )}
         {reviewFormSurface && <A2UIRenderer surfaceId="review-form" />}
 
-        {lastAssistantText && !hasProtocolSurface && !pendingInterrupt && (
+        {lastAssistantText && (
           <p className="mt-2 text-sm text-foreground whitespace-pre-wrap">
             {lastAssistantText}
           </p>
