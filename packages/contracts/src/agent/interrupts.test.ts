@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   clarificationInterrupt,
   commitMovieNightInterrupt,
+  commitMovieNightResponseSchema,
   interruptRunFinishedResultSchema,
   interruptSchema,
 } from "./interrupts";
@@ -56,6 +57,31 @@ describe("commitMovieNightInterrupt", () => {
     };
     expect(schema.properties.editedReason["ui:widget"]).toBe("textarea");
     expect(interruptSchema.safeParse(interrupt).success).toBe(true);
+  });
+});
+
+describe("commitMovieNightResponseSchema", () => {
+  it("rejects editedReason longer than 1000 chars", () => {
+    const tooLong = "x".repeat(1001);
+    const result = commitMovieNightResponseSchema.safeParse({
+      approved: true,
+      editedReason: tooLong,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts editedReason at the 1000-char boundary", () => {
+    const ok = "x".repeat(1000);
+    const result = commitMovieNightResponseSchema.safeParse({
+      approved: true,
+      editedReason: ok,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts approve without editedReason", () => {
+    const result = commitMovieNightResponseSchema.safeParse({ approved: true });
+    expect(result.success).toBe(true);
   });
 });
 
