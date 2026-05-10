@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Operation } from "fast-json-patch";
 import { createAgentClient } from "@/lib/ag-ui/client";
 import { applyMessage, clearAllSurfaces } from "@/lib/a2ui/store";
+import { useMemoryContext } from "@/contexts/memory-context";
 import {
   interruptRunFinishedResultSchema,
   type A2UIMessage,
   type Interrupt,
+  type ViewingPreferences,
 } from "@repo/contracts";
 import type { HttpAgent, Message } from "@ag-ui/client";
 
@@ -23,6 +26,7 @@ interface ToolResult {
 }
 
 export function useAgentChat() {
+  const memory = useMemoryContext();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,8 +78,32 @@ export function useAgentChat() {
       },
 
       onCustomEvent({ event }) {
-        if (event.name !== "a2ui") return;
-        applyMessage(event.value as A2UIMessage);
+        if (event.name === "a2ui") {
+          applyMessage(event.value as A2UIMessage);
+          return;
+        }
+        if (event.name === "memory-applied") {
+          const value = event.value as { keys?: unknown } | undefined;
+          const keys = value?.keys;
+          if (Array.isArray(keys)) {
+            memory.markApplied(
+              keys.filter((k): k is string => typeof k === "string"),
+            );
+          }
+          return;
+        }
+      },
+
+      onStateSnapshotEvent({ event }) {
+        const snapshot = (event as { snapshot?: unknown }).snapshot;
+        memory.applySnapshot((snapshot ?? {}) as ViewingPreferences);
+      },
+
+      onStateDeltaEvent({ event }) {
+        const delta = (event as { delta?: unknown }).delta;
+        if (Array.isArray(delta)) {
+          memory.applyDelta(delta as Operation[]);
+        }
       },
 
       onToolCallEndEvent({ event, toolCallName }) {
@@ -120,7 +148,7 @@ export function useAgentChat() {
 
     unsubscribeRef.current = unsubscribe;
     return agent;
-  }, []);
+  }, [memory]);
 
   const sendMessage = useCallback(
     async (text: string) => {
