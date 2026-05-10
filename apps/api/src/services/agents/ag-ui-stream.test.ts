@@ -92,6 +92,72 @@ describe("streamAgUiEvents", () => {
     expect(types).toContain("TOOL_CALL_RESULT");
   });
 
+  it("tool-approval-request for commit_movie_night with valid input: emits typed interrupt with editedReason textarea", async () => {
+    const validInput = {
+      pickedMovieId: "11111111-1111-4111-8111-111111111111",
+      backupMovieIds: ["22222222-2222-4222-8222-222222222222"],
+      reason: "feel-good",
+    };
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-c",
+        toolName: "commit_movie_night",
+        input: validInput,
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-approval-request",
+        approvalId: "ap-c",
+        toolCall: {
+          type: "tool-call",
+          toolCallId: "tc-c",
+          toolName: "commit_movie_night",
+          args: validInput,
+          input: validInput,
+        },
+      } as unknown as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), options);
+    const events = await collectEvents(stream);
+    const finished = events.find((e) => parseEventType(e) === "RUN_FINISHED");
+    expect(finished).toBeDefined();
+    expect(finished).toContain('"reason":"approval"');
+    expect(finished).toContain('"ui:widget":"textarea"');
+    expect(finished).toContain(validInput.pickedMovieId);
+  });
+
+  it("tool-approval-request for commit_movie_night with malformed input: falls back to generic approval interrupt", async () => {
+    const badInput = { pickedMovieId: "not-a-uuid", backupMovieIds: [], reason: "x" };
+    const parts: TextStreamPart<ToolSet>[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tc-bad",
+        toolName: "commit_movie_night",
+        input: badInput,
+      } as TextStreamPart<ToolSet>,
+      {
+        type: "tool-approval-request",
+        approvalId: "ap-bad",
+        toolCall: {
+          type: "tool-call",
+          toolCallId: "tc-bad",
+          toolName: "commit_movie_night",
+          args: badInput,
+          input: badInput,
+        },
+      } as unknown as TextStreamPart<ToolSet>,
+    ];
+
+    const stream = streamAgUiEvents(mockStream(parts), options);
+    const events = await collectEvents(stream);
+    const finished = events.find((e) => parseEventType(e) === "RUN_FINISHED")!;
+    // Generic shape: no editedReason key in responseSchema.
+    expect(finished).not.toContain('"ui:widget":"textarea"');
+    expect(finished).toContain('"reason":"approval"');
+    expect(finished).toContain('Approve calling commit_movie_night');
+  });
+
   it("tool-approval-request: emits TOOL_CALL_* without RESULT and attaches an approval interrupt to RUN_FINISHED", async () => {
     const parts: TextStreamPart<ToolSet>[] = [
       {

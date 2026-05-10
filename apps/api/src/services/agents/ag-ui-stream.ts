@@ -4,6 +4,8 @@ import type { TextStreamPart, ToolSet } from "ai";
 import type { Operation } from "fast-json-patch";
 import {
   clarificationInterrupt,
+  commitMovieNightInterrupt,
+  commitMovieNightProposedSchema,
   type A2UIMessage,
   type Interrupt,
   type MovieDto,
@@ -104,6 +106,22 @@ function approvalInterrupt(
       required: ["approved"],
     },
   };
+}
+
+function buildApprovalInterrupt(
+  toolCallId: string,
+  toolName: string,
+  input: unknown,
+): Interrupt {
+  if (toolName === "commit_movie_night") {
+    const parsed = commitMovieNightProposedSchema.safeParse(input);
+    if (parsed.success) {
+      return commitMovieNightInterrupt(toolCallId, parsed.data);
+    }
+    // Fall through: malformed proposals get the generic shape; the chat
+    // route's 422 validation catches them on resume.
+  }
+  return approvalInterrupt(toolCallId, toolName, input);
 }
 
 interface TextState {
@@ -305,7 +323,9 @@ export async function* streamAgUiEvents(
           // AI SDK emits `tool-call` before `tool-approval-request` for the
           // same tool, so TOOL_CALL_START/ARGS/END are already sent.
           const { toolCallId, toolName, input } = part.toolCall;
-          pendingInterrupts.push(approvalInterrupt(toolCallId, toolName, input));
+          pendingInterrupts.push(
+            buildApprovalInterrupt(toolCallId, toolName, input),
+          );
           break;
         }
         case "error":
