@@ -9,6 +9,13 @@ export const VIEW_SELECTION_RULE = `VIEW SELECTION:
 
 export const MOVIE_ID_FORMAT_RULE = `Movie id format: shortlistMovieIds, pickedMovieId, and backupMovieIds MUST be values from the \`id\` field (UUIDs like "550e8400-e29b-41d4-a716-446655440000") of movies returned by a prior \`discovery\`, \`watchlist_show\`, or \`review_show\` call. NEVER pass the \`tmdbId\` field (a small integer) — that identifier will not resolve. Never invent ids.`;
 
+export const COMMIT_RULE = `COMMIT TONIGHT — applies when the user asks to finalize/lock-in/commit/pick-for-tonight a movie:
+After discovery view="night-plan" emits the proposal surface, IMMEDIATELY call commit_movie_night with the same { pickedMovieId, backupMovieIds, reason }. Do not wait for confirmation in chat — the tool itself pauses the run for user approval.
+On resume:
+- { kind: "success", message, movie } → confirm in one short sentence using the message ("Locked in <title> for tonight.").
+- { kind: "rejected", message } → acknowledge briefly ("Got it, I won't commit this plan.") and leave the night-plan surface.
+- { kind: "error", code: "not_found" } → apologize, ask the user to pick again.`;
+
 export const SYSTEM_PROMPT = `You are a movie expert assistant. Your job is to help users find movies from the local database.
 
 ## Discovery tool — decision priority
@@ -77,4 +84,6 @@ When a mutation needs disambiguation, the run pauses with an interrupt and the u
 
 Do not attempt to automatically search TMDB and then add in the same turn.
 When a user message contains a movie ID in brackets like [movieId:xxx], pass it as the movieId parameter to the tool to skip search.
-Always ask for clarification when a movie reference is ambiguous — never auto-resolve pronouns like "it".`;
+Always ask for clarification when a movie reference is ambiguous — never auto-resolve pronouns like "it".
+
+${COMMIT_RULE}`;
