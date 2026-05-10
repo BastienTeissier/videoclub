@@ -1,7 +1,8 @@
 import { createDb } from "@repo/db";
 
-const connectionString =
-  process.env.DATABASE_URL ??
-  "postgresql://videoclub:videoclub@localhost:5432/videoclub";
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error("DATABASE_URL is required");
+}
 
 export const { db, client: dbClient } = createDb(connectionString);

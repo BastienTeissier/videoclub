@@ -8,6 +8,7 @@ import { health } from "./features/health/route.js";
 import { movies } from "./features/movies/route.js";
 import { chat } from "./features/chat/route.js";
 import { watchlist } from "./features/watchlist/route.js";
+import { reviews } from "./features/reviews/route.js";
 
 type Variables = {
   requestId: string;
@@ -30,6 +31,7 @@ api.use("*", devAuth);
 api.route("/movies", movies);
 api.route("/chat", chat);
 api.route("/watchlist", watchlist);
+api.route("/reviews", reviews);
 
 app.route("/api/v1", api);
 

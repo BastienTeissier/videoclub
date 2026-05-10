@@ -1,20 +1,14 @@
 "use client";
 
-import { WatchlistGrid } from "./renderers/watchlist-grid";
-
-type RendererComponent = React.ComponentType<{ data: never }>;
-
-const registry: Record<string, RendererComponent> = {
-  "watchlist-grid": WatchlistGrid as RendererComponent,
-};
+import { useA2UISurface } from "./store";
+import { renderComponent } from "./catalog";
 
 interface A2UIRendererProps {
-  surface: { type: string; [key: string]: unknown };
+  surfaceId: string;
 }
 
-export function A2UIRenderer({ surface }: A2UIRendererProps) {
-  const Component = registry[surface.type];
-  if (!Component) return null;
-
-  return <Component data={surface as never} />;
+export function A2UIRenderer({ surfaceId }: A2UIRendererProps) {
+  const surface = useA2UISurface(surfaceId);
+  if (!surface) return null;
+  return <>{renderComponent(surface.components[surface.rootId], surfaceId)}</>;
 }

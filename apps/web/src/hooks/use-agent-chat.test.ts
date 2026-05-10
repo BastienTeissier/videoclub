@@ -1,8 +1,9 @@
+import { createElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useAgentChat } from "./use-agent-chat";
+import { MemoryProvider } from "@/contexts/memory-context";
 
-// Mock the AG-UI client
 const mockRunAgent = vi.fn();
 const mockAbortRun = vi.fn();
 const mockSubscribe = vi.fn();
@@ -18,29 +19,31 @@ vi.mock("@/lib/ag-ui/client", () => ({
   })),
 }));
 
+const wrapper = ({ children }: { children: React.ReactNode }) =>
+  createElement(MemoryProvider, null, children);
+
 let subscriberCallbacks: Record<string, (...args: unknown[]) => void> = {};
 
 beforeEach(() => {
   vi.clearAllMocks();
   subscriberCallbacks = {};
-
-  mockSubscribe.mockImplementation((subscriber: Record<string, (...args: unknown[]) => void>) => {
-    subscriberCallbacks = subscriber;
-    return { unsubscribe: vi.fn() };
-  });
-
+  mockSubscribe.mockImplementation(
+    (subscriber: Record<string, (...args: unknown[]) => void>) => {
+      subscriberCallbacks = subscriber;
+      return { unsubscribe: vi.fn() };
+    },
+  );
   mockRunAgent.mockResolvedValue({});
 });
 
 describe("useAgentChat", () => {
   it("sends message and accumulates streaming text", async () => {
-    const { result } = renderHook(() => useAgentChat());
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
 
     await act(async () => {
       await result.current.sendMessage("find movies");
     });
 
-    // Simulate text streaming events
     act(() => {
       subscriberCallbacks.onTextMessageContentEvent?.({
         textMessageBuffer: "Here are some movies",
@@ -52,35 +55,73 @@ describe("useAgentChat", () => {
       });
     });
 
-    expect(result.current.messages).toHaveLength(2); // user + assistant
+    expect(result.current.messages).toHaveLength(2);
     expect(result.current.messages[1]!.role).toBe("assistant");
     expect(result.current.messages[1]!.content).toBe("Here are some movies");
   });
 
-  it("sets pendingApproval when tool call has no result", async () => {
-    const { result } = renderHook(() => useAgentChat());
+  it("sets pendingInterrupt when run finishes with an interrupt result", async () => {
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
 
     await act(async () => {
-      await result.current.sendMessage("search movies");
+      await result.current.sendMessage("delete review of Dune");
     });
 
-    // Tool call ends without result
-    act(() => {
-      subscriberCallbacks.onToolCallEndEvent?.({
-        event: { toolCallId: "tc-1" },
-        toolCallName: "search_tmdb",
-        toolCallArgs: { query: "Stalker" },
-        messages: [],
-        state: {},
-        agent: {},
-        input: {},
-      });
-    });
-
-    // Run finishes
     act(() => {
       subscriberCallbacks.onRunFinishedEvent?.({
-        event: {},
+        event: {
+          result: {
+            type: "interrupt",
+            interrupts: [
+              {
+                id: "call_abc",
+                reason: "clarification",
+                message: "Which movie did you mean?",
+                proposed: {
+                  candidates: [
+                    {
+                      id: "11111111-1111-4111-8111-111111111111",
+                      tmdbId: 1,
+                      title: "Dune",
+                      year: 1984,
+                      synopsis: null,
+                      genres: null,
+                      cast: null,
+                      directors: null,
+                      runtime: null,
+                      language: null,
+                      posterUrl: null,
+                      backdropUrl: null,
+                      popularity: null,
+                      releaseDate: null,
+                      createdAt: "2020-01-01T00:00:00.000Z",
+                      updatedAt: "2020-01-01T00:00:00.000Z",
+                    },
+                    {
+                      id: "22222222-2222-4222-8222-222222222222",
+                      tmdbId: 2,
+                      title: "Dune",
+                      year: 2021,
+                      synopsis: null,
+                      genres: null,
+                      cast: null,
+                      directors: null,
+                      runtime: null,
+                      language: null,
+                      posterUrl: null,
+                      backdropUrl: null,
+                      popularity: null,
+                      releaseDate: null,
+                      createdAt: "2020-01-01T00:00:00.000Z",
+                      updatedAt: "2020-01-01T00:00:00.000Z",
+                    },
+                  ],
+                },
+                responseSchema: { type: "object" },
+              },
+            ],
+          },
+        },
         messages: [],
         state: {},
         agent: {},
@@ -88,30 +129,15 @@ describe("useAgentChat", () => {
       });
     });
 
-    expect(result.current.pendingApproval).toEqual({
-      toolCallId: "tc-1",
-      toolName: "search_tmdb",
-      args: { query: "Stalker" },
-    });
+    expect(result.current.pendingInterrupt?.id).toBe("call_abc");
+    expect(result.current.pendingInterrupt?.reason).toBe("clarification");
   });
 
-  it("approveToolCall triggers new run", async () => {
-    const { result } = renderHook(() => useAgentChat());
+  it("does not set pendingInterrupt when run finishes without an interrupt", async () => {
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
 
     await act(async () => {
-      await result.current.sendMessage("search");
-    });
-
-    act(() => {
-      subscriberCallbacks.onToolCallEndEvent?.({
-        event: { toolCallId: "tc-1" },
-        toolCallName: "search_tmdb",
-        toolCallArgs: { query: "test" },
-        messages: [],
-        state: {},
-        agent: {},
-        input: {},
-      });
+      await result.current.sendMessage("hi");
     });
 
     act(() => {
@@ -124,38 +150,82 @@ describe("useAgentChat", () => {
       });
     });
 
+    expect(result.current.pendingInterrupt).toBeNull();
+  });
+
+  it("respondToInterrupt re-runs the agent with forwardedProps.interruptResponse", async () => {
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
+
+    await act(async () => {
+      await result.current.sendMessage("delete review of Dune");
+    });
+
+    act(() => {
+      subscriberCallbacks.onRunFinishedEvent?.({
+        event: {
+          result: {
+            type: "interrupt",
+            interrupts: [
+              {
+                id: "call_abc",
+                reason: "clarification",
+                message: "Which?",
+                proposed: { candidates: [] },
+                responseSchema: { type: "object" },
+              },
+            ],
+          },
+        },
+        messages: [],
+        state: {},
+        agent: {},
+        input: {},
+      });
+    });
+
+    expect(result.current.pendingInterrupt?.id).toBe("call_abc");
     mockRunAgent.mockClear();
 
     await act(async () => {
-      await result.current.approveToolCall("tc-1");
+      await result.current.respondToInterrupt("call_abc", {
+        pickedMovieId: "movie-42",
+      });
     });
 
     expect(mockRunAgent).toHaveBeenCalledTimes(1);
-    expect(result.current.pendingApproval).toBeNull();
+    expect(mockRunAgent).toHaveBeenCalledWith({
+      forwardedProps: {
+        interruptResponse: {
+          interruptId: "call_abc",
+          response: { pickedMovieId: "movie-42" },
+        },
+      },
+    });
+    expect(result.current.pendingInterrupt).toBeNull();
   });
 
-  it("resets pendingApproval on new message", async () => {
-    const { result } = renderHook(() => useAgentChat());
+  it("resets pendingInterrupt on a new sendMessage", async () => {
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
 
     await act(async () => {
-      await result.current.sendMessage("search");
+      await result.current.sendMessage("first");
     });
-
-    act(() => {
-      subscriberCallbacks.onToolCallEndEvent?.({
-        event: { toolCallId: "tc-1" },
-        toolCallName: "search_tmdb",
-        toolCallArgs: { query: "test" },
-        messages: [],
-        state: {},
-        agent: {},
-        input: {},
-      });
-    });
-
     act(() => {
       subscriberCallbacks.onRunFinishedEvent?.({
-        event: {},
+        event: {
+          result: {
+            type: "interrupt",
+            interrupts: [
+              {
+                id: "call_abc",
+                reason: "clarification",
+                message: "x",
+                proposed: { candidates: [] },
+                responseSchema: { type: "object" },
+              },
+            ],
+          },
+        },
         messages: [],
         state: {},
         agent: {},
@@ -163,12 +233,146 @@ describe("useAgentChat", () => {
       });
     });
 
-    expect(result.current.pendingApproval).not.toBeNull();
+    expect(result.current.pendingInterrupt).not.toBeNull();
 
     await act(async () => {
       await result.current.sendMessage("new query");
     });
 
-    expect(result.current.pendingApproval).toBeNull();
+    expect(result.current.pendingInterrupt).toBeNull();
+  });
+});
+
+describe("useAgentChat — memory subscriptions", () => {
+  it("STATE_SNAPSHOT triggers applySnapshot via memory context", async () => {
+    const memoryModule = await import("@/contexts/memory-context");
+    const useMemorySpy = vi.spyOn(memoryModule, "useMemoryContext");
+    const applySnapshot = vi.fn();
+    const applyDelta = vi.fn();
+    const markApplied = vi.fn();
+    useMemorySpy.mockReturnValue({
+      snapshot: {},
+      flashingKeys: new Set(),
+      applySnapshot,
+      applyDelta,
+      markApplied,
+    });
+
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+
+    act(() => {
+      subscriberCallbacks.onStateSnapshotEvent?.({
+        event: { snapshot: { genres: ["Comedy"] } },
+        messages: [],
+        state: {},
+        agent: {},
+        input: {},
+      });
+    });
+
+    expect(applySnapshot).toHaveBeenCalledWith({ genres: ["Comedy"] });
+
+    useMemorySpy.mockRestore();
+  });
+
+  it("STATE_DELTA triggers applyDelta with the ops array", async () => {
+    const memoryModule = await import("@/contexts/memory-context");
+    const useMemorySpy = vi.spyOn(memoryModule, "useMemoryContext");
+    const applyDelta = vi.fn();
+    useMemorySpy.mockReturnValue({
+      snapshot: {},
+      flashingKeys: new Set(),
+      applySnapshot: vi.fn(),
+      applyDelta,
+      markApplied: vi.fn(),
+    });
+
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+
+    const ops = [{ op: "add", path: "/genres", value: ["Comedy"] }];
+    act(() => {
+      subscriberCallbacks.onStateDeltaEvent?.({
+        event: { delta: ops },
+        messages: [],
+        state: {},
+        agent: {},
+        input: {},
+      });
+    });
+
+    expect(applyDelta).toHaveBeenCalledWith(ops);
+
+    useMemorySpy.mockRestore();
+  });
+
+  it("CUSTOM memory-applied triggers markApplied with the keys array", async () => {
+    const memoryModule = await import("@/contexts/memory-context");
+    const useMemorySpy = vi.spyOn(memoryModule, "useMemoryContext");
+    const markApplied = vi.fn();
+    useMemorySpy.mockReturnValue({
+      snapshot: {},
+      flashingKeys: new Set(),
+      applySnapshot: vi.fn(),
+      applyDelta: vi.fn(),
+      markApplied,
+    });
+
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+
+    act(() => {
+      subscriberCallbacks.onCustomEvent?.({
+        event: { name: "memory-applied", value: { keys: ["genres"] } },
+        messages: [],
+        state: {},
+        agent: {},
+        input: {},
+      });
+    });
+
+    expect(markApplied).toHaveBeenCalledWith(["genres"]);
+
+    useMemorySpy.mockRestore();
+  });
+
+  it("CUSTOM memory-applied with malformed value is a no-op", async () => {
+    const memoryModule = await import("@/contexts/memory-context");
+    const useMemorySpy = vi.spyOn(memoryModule, "useMemoryContext");
+    const markApplied = vi.fn();
+    useMemorySpy.mockReturnValue({
+      snapshot: {},
+      flashingKeys: new Set(),
+      applySnapshot: vi.fn(),
+      applyDelta: vi.fn(),
+      markApplied,
+    });
+
+    const { result } = renderHook(() => useAgentChat(), { wrapper });
+    await act(async () => {
+      await result.current.sendMessage("hi");
+    });
+
+    expect(() =>
+      act(() => {
+        subscriberCallbacks.onCustomEvent?.({
+          event: { name: "memory-applied", value: { keys: "not-an-array" } },
+          messages: [],
+          state: {},
+          agent: {},
+          input: {},
+        });
+      }),
+    ).not.toThrow();
+    expect(markApplied).not.toHaveBeenCalled();
+
+    useMemorySpy.mockRestore();
   });
 });

@@ -24,3 +24,9 @@ export {
   type WatchlistItem,
   type NewWatchlistItem,
 } from "./watchlist-items.js";
+export { reviews, type Review, type NewReview } from "./reviews.js";
+export {
+  movieNightPlans,
+  type MovieNightPlan,
+  type NewMovieNightPlan,
+} from "./movie-night-plans.js";

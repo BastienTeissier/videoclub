@@ -58,33 +58,24 @@ export function agUiToAiSdk(messages: AgUiMessage[]): ModelMessage[] {
   return result;
 }
 
-export interface ToolApprovalInfo {
-  toolCallId: string;
-  toolName: string;
-  approved: boolean;
+export interface InterruptResponseInfo {
+  interruptId: string;
+  response: unknown;
 }
 
-export function extractApprovalResponses(
-  messages: AgUiMessage[]
-): ToolApprovalInfo[] {
-  const approvals: ToolApprovalInfo[] = [];
-
-  for (const msg of messages) {
-    if (msg.role === "tool") {
-      try {
-        const parsed = JSON.parse(msg.content);
-        if (parsed && typeof parsed === "object" && "approved" in parsed) {
-          approvals.push({
-            toolCallId: msg.toolCallId,
-            toolName: parsed.toolName ?? "",
-            approved: parsed.approved === true,
-          });
-        }
-      } catch {
-        // Not an approval response, skip
-      }
-    }
-  }
-
-  return approvals;
+/**
+ * Extracts a structured interrupt response from the request.
+ *
+ * Preferred: `forwardedProps.interruptResponse = { interruptId, response }`.
+ * The legacy "tool message with { approved: true }" path is intentionally
+ * not supported — Amendment B + C migrated to structured responses.
+ */
+export function extractInterruptResponse(
+  forwardedProps:
+    | { interruptResponse?: { interruptId: string; response: unknown } }
+    | undefined,
+): InterruptResponseInfo | null {
+  const ir = forwardedProps?.interruptResponse;
+  if (!ir || typeof ir.interruptId !== "string") return null;
+  return { interruptId: ir.interruptId, response: ir.response };
 }

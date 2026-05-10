@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Toaster } from "@repo/ui";
 import { WatchlistProvider } from "@/contexts/watchlist-context";
-import { ChatResultsProvider } from "@/contexts/chat-results-context";
+import { ReviewProvider } from "@/contexts/review-context";
+import { MemoryProvider } from "@/contexts/memory-context";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -18,9 +19,9 @@ export default function RootLayout({
     <html lang="en">
       <body className="min-h-screen antialiased">
         <WatchlistProvider>
-          <ChatResultsProvider>
-            {children}
-          </ChatResultsProvider>
+          <ReviewProvider>
+            <MemoryProvider>{children}</MemoryProvider>
+          </ReviewProvider>
         </WatchlistProvider>
         <Toaster />
       </body>

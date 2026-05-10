@@ -21,10 +21,11 @@
     "testcontainers": "^11.13.0",
     "tsx": "^4.19.4",
     "typescript": "^5.8.2",
-    "vitest": "^4.1.0",
+    "vitest": "^4.1.5",
     "zod": "^4.3.6"
   },
   "dependencies": {
+    "@repo/contracts": "workspace:*",
     "@repo/tmdb-client": "workspace:*",
     "drizzle-orm": "^0.45.1",
     "postgres": "^3.4.8"

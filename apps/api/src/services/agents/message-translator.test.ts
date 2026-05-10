@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { agUiToAiSdk, extractApprovalResponses } from "./message-translator.js";
+import { agUiToAiSdk, extractInterruptResponse } from "./message-translator.js";
 import type { AgUiMessage } from "../../features/chat/ag-ui-schema.js";
 
 describe("agUiToAiSdk", () => {
@@ -47,28 +47,39 @@ describe("agUiToAiSdk", () => {
     });
   });
 
-  it("extracts approval responses from tool messages", () => {
-    const messages: AgUiMessage[] = [
-      {
-        role: "tool",
-        id: "t-1",
-        toolCallId: "tc-1",
-        content: JSON.stringify({ approved: true, toolName: "search_tmdb" }),
+  it("handles empty messages array", () => {
+    expect(agUiToAiSdk([])).toEqual([]);
+  });
+});
+
+describe("extractInterruptResponse", () => {
+  it("returns null when forwardedProps is absent", () => {
+    expect(extractInterruptResponse(undefined)).toBeNull();
+  });
+
+  it("returns null when forwardedProps has no interruptResponse", () => {
+    expect(extractInterruptResponse({})).toBeNull();
+  });
+
+  it("extracts a structured interrupt response", () => {
+    const result = extractInterruptResponse({
+      interruptResponse: {
+        interruptId: "call_abc",
+        response: { pickedMovieId: "movie-42" },
       },
-    ];
+    });
 
-    const approvals = extractApprovalResponses(messages);
-
-    expect(approvals).toHaveLength(1);
-    expect(approvals[0]).toEqual({
-      toolCallId: "tc-1",
-      toolName: "search_tmdb",
-      approved: true,
+    expect(result).toEqual({
+      interruptId: "call_abc",
+      response: { pickedMovieId: "movie-42" },
     });
   });
 
-  it("handles empty messages array", () => {
-    expect(agUiToAiSdk([])).toEqual([]);
-    expect(extractApprovalResponses([])).toEqual([]);
+  it("ignores invalid shapes gracefully", () => {
+    expect(
+      extractInterruptResponse({
+        interruptResponse: { interruptId: 123 } as never,
+      }),
+    ).toBeNull();
   });
 });

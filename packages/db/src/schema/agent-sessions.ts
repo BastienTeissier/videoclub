@@ -1,4 +1,5 @@
 import { pgTable, uuid, text, jsonb, timestamp, index } from "drizzle-orm/pg-core";
+import type { ViewingPreferences } from "@repo/contracts";
 
 export const agentSessions = pgTable(
   "agent_sessions",
@@ -6,6 +7,10 @@ export const agentSessions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     userId: text("user_id").notNull(),
     context: jsonb("context").default({}).$type<Record<string, unknown>>(),
+    viewingPreferences: jsonb("viewing_preferences")
+      .notNull()
+      .default({})
+      .$type<ViewingPreferences>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

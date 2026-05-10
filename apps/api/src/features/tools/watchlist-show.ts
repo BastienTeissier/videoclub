@@ -3,43 +3,53 @@ import { z } from "zod";
 import type { Database } from "@repo/db";
 import { watchlistService } from "../../services/watchlist.js";
 import { movieToDto } from "./movie-to-dto.js";
+import { watchlistGridMessages } from "../../services/agents/a2ui-emitter.js";
 
 export function createWatchlistShowTool(db: Database, userId: string) {
   const service = watchlistService(db);
 
   return tool({
     description:
-      "Show the user's full watchlist as a poster grid, sorted by most recently added.",
+      "Show the user's full watchlist as a poster grid, sorted by most recently added. Use ONLY when the user wants to see/browse the watchlist itself. If the user wants to COMPARE or PICK from their watchlist (e.g. 'compare the top 3 in my watchlist', 'pick one from my watchlist'), do not stop after this tool — chain into the `discovery` tool with view='comparison' or view='night-plan' in the same turn, using IDs from this tool's result.",
     needsApproval: false,
     inputSchema: z.object({}),
     execute: async () => {
       try {
         const { items } = await service.list(userId);
         const dtos = items.map(movieToDto);
+        const message =
+          dtos.length === 0
+            ? "Your watchlist is empty. Search for movies to get started!"
+            : undefined;
 
-        if (dtos.length === 0) {
-          return {
+        return {
+          data: {
+            type: "watchlist-grid" as const,
+            items: dtos,
+            count: dtos.length,
+            ...(message ? { message } : {}),
+          },
+          a2uiMessages: watchlistGridMessages({
+            items: dtos,
+            message,
+          }),
+        };
+      } catch {
+        const errorMessage =
+          "Sorry, I couldn't load your watchlist right now. Please try again.";
+        return {
+          data: {
             type: "watchlist-grid" as const,
             items: [],
             count: 0,
-            message:
-              "Your watchlist is empty. Search for movies to get started!",
-          };
-        }
-
-        return {
-          type: "watchlist-grid" as const,
-          items: dtos,
-          count: dtos.length,
-        };
-      } catch {
-        return {
-          type: "watchlist-grid" as const,
-          items: [],
-          count: 0,
-          error: true,
-          message:
-            "Sorry, I couldn't load your watchlist right now. Please try again.",
+            error: true,
+            message: errorMessage,
+          },
+          a2uiMessages: watchlistGridMessages({
+            items: [],
+            message: errorMessage,
+            error: true,
+          }),
         };
       }
     },

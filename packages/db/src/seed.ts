@@ -100,9 +100,11 @@ async function main() {
     process.exit(1);
   }
 
-  const databaseUrl =
-    process.env.DATABASE_URL ??
-    "postgresql://videoclub:videoclub@localhost:5432/videoclub";
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    console.error("DATABASE_URL environment variable is required");
+    process.exit(1);
+  }
 
   const { db, client } = createDb(databaseUrl);
   const repo = moviesRepository(db);

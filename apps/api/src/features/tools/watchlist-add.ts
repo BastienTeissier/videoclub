@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { Database } from "@repo/db";
 import { moviesRepository } from "@repo/db";
+import type { MutationOutcome } from "@repo/contracts";
 import { watchlistService } from "../../services/watchlist.js";
 import { movieToDto } from "./movie-to-dto.js";
 
@@ -20,32 +21,32 @@ export function createWatchlistAddTool(db: Database, userId: string) {
         .optional()
         .describe("Optional movie ID to skip search and add directly"),
     }),
-    execute: async ({ title, movieId }) => {
+    execute: async ({ title, movieId }): Promise<MutationOutcome> => {
       try {
-        // Direct add by movieId
         if (movieId) {
           const movie = await moviesRepo.findById(movieId);
           if (!movie) {
             return {
-              error: "not_found",
+              kind: "error",
+              code: "not_found",
               message: `No movie found with ID '${movieId}'.`,
             };
           }
           const result = await service.add(userId, movie.id);
           return {
-            added: result.added,
+            kind: "success",
+            affected: ["watchlist"],
             message: result.message,
-            movieId: movie.id,
             movie: movieToDto(movie),
           };
         }
 
-        // Search by title in local DB
         const matches = await moviesRepo.searchStructured({ title });
 
         if (matches.length === 0) {
           return {
-            error: "not_found",
+            kind: "error",
+            code: "not_found",
             message: `I couldn't find '${title}' in the local catalog. Search for it first, then ask me to add it to your watchlist.`,
           };
         }
@@ -54,22 +55,21 @@ export function createWatchlistAddTool(db: Database, userId: string) {
           const movie = matches[0]!;
           const result = await service.add(userId, movie.id);
           return {
-            added: result.added,
+            kind: "success",
+            affected: ["watchlist"],
             message: result.message,
-            movieId: movie.id,
             movie: movieToDto(movie),
           };
         }
 
-        // Multiple matches — ask for clarification
         return {
-          clarification_needed: true,
-          action: "add" as const,
+          kind: "needs-clarification",
           candidates: matches.map(movieToDto),
         };
       } catch {
         return {
-          error: "service_error",
+          kind: "error",
+          code: "service_error",
           message:
             "Sorry, I couldn't add the movie to your watchlist right now. Please try again.",
         };

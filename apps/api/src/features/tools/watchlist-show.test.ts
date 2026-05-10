@@ -53,46 +53,60 @@ const toolContext = {
 };
 
 describe("createWatchlistShowTool", () => {
-  it("returns watchlist-grid surface with items and count", async () => {
+  it("returns { data: watchlist-grid, a2uiMessages } with items and count", async () => {
     mockList.mockResolvedValue({
       items: [fakeMovie(1), fakeMovie(2), fakeMovie(3)],
       count: 3,
     });
 
     const tool = makeTool();
-    const result = await tool.execute!({}, toolContext);
+    const result = (await tool.execute!({}, toolContext)) as {
+      data: { type: string; count: number; items: { id: string }[] };
+      a2uiMessages: unknown[];
+    };
 
-    expect(result).toMatchObject({
-      type: "watchlist-grid",
-      count: 3,
-    });
-    expect((result as { items: unknown[] }).items).toHaveLength(3);
-    expect((result as { items: Array<{ id: string }> }).items[0]!.id).toBe(
-      "uuid-1",
-    );
+    expect(result.data.type).toBe("watchlist-grid");
+    expect(result.data.count).toBe(3);
+    expect(result.data.items).toHaveLength(3);
+    expect(result.data.items[0]!.id).toBe("uuid-1");
+    expect(result.a2uiMessages).toHaveLength(3);
   });
 
-  it("empty watchlist returns empty-state message", async () => {
+  it("empty watchlist returns empty-state message in data and a2uiMessages", async () => {
     mockList.mockResolvedValue({ items: [], count: 0 });
 
     const tool = makeTool();
-    const result = await tool.execute!({}, toolContext);
+    const result = (await tool.execute!({}, toolContext)) as {
+      data: { type: string; items: unknown[]; count: number; message: string };
+      a2uiMessages: Array<{ updateDataModel?: { value: { state: string } } }>;
+    };
 
-    expect(result).toEqual({
+    expect(result.data).toEqual({
       type: "watchlist-grid",
       items: [],
       count: 0,
       message: "Your watchlist is empty. Search for movies to get started!",
     });
+    const stateUpdate = result.a2uiMessages.find((m) => m.updateDataModel);
+    expect(stateUpdate?.updateDataModel?.value.state).toBe("empty");
   });
 
-  it("service failure returns watchlist error message", async () => {
+  it("service failure returns error data and a2uiMessages with state=error", async () => {
     mockList.mockRejectedValue(new Error("DB down"));
 
     const tool = makeTool();
-    const result = await tool.execute!({}, toolContext);
+    const result = (await tool.execute!({}, toolContext)) as {
+      data: {
+        type: string;
+        items: unknown[];
+        count: number;
+        error: boolean;
+        message: string;
+      };
+      a2uiMessages: Array<{ updateDataModel?: { value: { state: string } } }>;
+    };
 
-    expect(result).toEqual({
+    expect(result.data).toEqual({
       type: "watchlist-grid",
       items: [],
       count: 0,
@@ -100,26 +114,7 @@ describe("createWatchlistShowTool", () => {
       message:
         "Sorry, I couldn't load your watchlist right now. Please try again.",
     });
-  });
-
-  it("result type is always watchlist-grid", async () => {
-    // success
-    mockList.mockResolvedValue({
-      items: [fakeMovie(1)],
-      count: 1,
-    });
-    const tool = makeTool();
-    const success = await tool.execute!({}, toolContext);
-    expect((success as { type: string }).type).toBe("watchlist-grid");
-
-    // empty
-    mockList.mockResolvedValue({ items: [], count: 0 });
-    const empty = await tool.execute!({}, toolContext);
-    expect((empty as { type: string }).type).toBe("watchlist-grid");
-
-    // error
-    mockList.mockRejectedValue(new Error("fail"));
-    const error = await tool.execute!({}, toolContext);
-    expect((error as { type: string }).type).toBe("watchlist-grid");
+    const stateUpdate = result.a2uiMessages.find((m) => m.updateDataModel);
+    expect(stateUpdate?.updateDataModel?.value.state).toBe("error");
   });
 });

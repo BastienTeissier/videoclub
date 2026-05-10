@@ -2,20 +2,29 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import type { MovieDto } from "@repo/contracts";
 import { MovieSearch } from "./movie-search";
+import { applyMessage, clearAllSurfaces } from "@/lib/a2ui/store";
 
 const mockSendMessage = vi.fn();
-const mockApproveToolCall = vi.fn();
-const mockRejectToolCall = vi.fn();
+const mockRespondToInterrupt = vi.fn();
+const mockCancelInterrupt = vi.fn();
+
+interface PendingInterrupt {
+  id: string;
+  reason: string;
+  message: string;
+  proposed: unknown;
+  responseSchema: unknown;
+}
 
 const defaultHookReturn = {
   messages: [] as { id: string; role: string; content: string }[],
   isLoading: false,
   error: null as string | null,
-  pendingApproval: null as { toolCallId: string; toolName: string; args: Record<string, unknown> } | null,
+  pendingInterrupt: null as PendingInterrupt | null,
   toolResults: [] as { toolName: string; toolCallId: string; result: unknown }[],
   sendMessage: mockSendMessage,
-  approveToolCall: mockApproveToolCall,
-  rejectToolCall: mockRejectToolCall,
+  respondToInterrupt: mockRespondToInterrupt,
+  cancelInterrupt: mockCancelInterrupt,
 };
 
 let hookReturn = { ...defaultHookReturn };
@@ -28,40 +37,50 @@ const mockRefetch = vi.fn();
 
 vi.mock("@/contexts/watchlist-context", () => ({
   useWatchlist: () => ({
-    isInWatchlist: () => false,
+    isInWatchlist: () => true,
     toggleWatchlist: vi.fn(),
     refetch: mockRefetch,
   }),
 }));
 
-const mockSetMovies = vi.fn();
-const mockSetWatchlistSurface = vi.fn();
-const mockSetClarification = vi.fn();
+const mockRefetchReviews = vi.fn();
 
-let chatResultsReturn = {
-  movies: [] as MovieDto[],
-  watchlistSurface: null as { type: string; [key: string]: unknown } | null,
-  clarification: null as { action: "add" | "remove"; candidates: MovieDto[] } | null,
-  setMovies: mockSetMovies,
-  setWatchlistSurface: mockSetWatchlistSurface,
-  setClarification: mockSetClarification,
-};
-
-vi.mock("@/contexts/chat-results-context", () => ({
-  useChatResults: () => chatResultsReturn,
+vi.mock("@/contexts/review-context", () => ({
+  useReviews: () => ({
+    getReviewRating: () => undefined,
+    upsertReview: vi.fn(),
+    deleteReview: vi.fn(),
+    refetch: mockRefetchReviews,
+  }),
 }));
+
+vi.mock("@repo/ui", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@repo/ui")>();
+  return { ...actual, toast: vi.fn() };
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
+  clearAllSurfaces();
   hookReturn = { ...defaultHookReturn };
-  chatResultsReturn = {
-    movies: [],
-    watchlistSurface: null,
-    clarification: null,
-    setMovies: mockSetMovies,
-    setWatchlistSurface: mockSetWatchlistSurface,
-    setClarification: mockSetClarification,
-  };
+});
+
+const fakeMovie = (overrides: Partial<MovieDto> & { id: string; title: string }): MovieDto => ({
+  tmdbId: 1,
+  year: 2024,
+  synopsis: null,
+  genres: null,
+  cast: null,
+  directors: null,
+  runtime: null,
+  language: null,
+  posterUrl: null,
+  backdropUrl: null,
+  popularity: null,
+  releaseDate: null,
+  createdAt: "2024-01-01T00:00:00.000Z",
+  updatedAt: "2024-01-01T00:00:00.000Z",
+  ...overrides,
 });
 
 describe("MovieSearch", () => {
@@ -77,55 +96,21 @@ describe("MovieSearch", () => {
     expect(mockSendMessage).toHaveBeenCalledWith("Spielberg movies");
   });
 
-  it("shows streaming text response", () => {
-    hookReturn = {
-      ...defaultHookReturn,
-      messages: [
-        { id: "1", role: "user", content: "hello" },
-        { id: "2", role: "assistant", content: "Here are some movies" },
-      ],
-    };
-
+  it("My Reviews button sends 'show my reviews'", () => {
     render(<MovieSearch />);
-    expect(screen.getByText("Here are some movies")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "My Reviews" }));
+    expect(mockSendMessage).toHaveBeenCalledWith("show my reviews");
   });
 
-  it("renders movie cards from persisted context", () => {
-    chatResultsReturn = {
-      ...chatResultsReturn,
-      movies: [
-        {
-          id: "uuid-1",
-          tmdbId: 100,
-          title: "Jaws",
-          year: 1975,
-          synopsis: null,
-          genres: ["Thriller"],
-          cast: ["Roy Scheider"],
-          directors: ["Steven Spielberg"],
-          runtime: null,
-          language: null,
-          posterUrl: null,
-          backdropUrl: null,
-          popularity: 80,
-          releaseDate: null,
-          createdAt: "2024-01-01T00:00:00.000Z",
-          updatedAt: "2024-01-01T00:00:00.000Z",
-        },
-      ],
-    };
-
-    render(<MovieSearch />);
-    expect(screen.getByText("Jaws")).toBeInTheDocument();
-  });
-
-  it("shows TMDB confirmation button when pendingApproval", () => {
+  it("shows TMDB confirmation button when pendingInterrupt is a search_tmdb approval", () => {
     hookReturn = {
       ...defaultHookReturn,
-      pendingApproval: {
-        toolCallId: "tc-1",
-        toolName: "search_tmdb",
-        args: { query: "Stalker" },
+      pendingInterrupt: {
+        id: "tc-1",
+        reason: "approval",
+        message: "Approve calling search_tmdb?",
+        proposed: { toolName: "search_tmdb", input: { query: "Stalker" } },
+        responseSchema: { type: "object" },
       },
     };
 
@@ -133,86 +118,118 @@ describe("MovieSearch", () => {
     expect(screen.getByText("Search TMDB for more results")).toBeInTheDocument();
   });
 
-  it("clicking confirm button calls approveToolCall", () => {
+  it("clicking confirm button calls respondToInterrupt with { approved: true }", () => {
     hookReturn = {
       ...defaultHookReturn,
-      pendingApproval: {
-        toolCallId: "tc-1",
-        toolName: "search_tmdb",
-        args: { query: "Stalker" },
+      pendingInterrupt: {
+        id: "tc-1",
+        reason: "approval",
+        message: "Approve calling search_tmdb?",
+        proposed: { toolName: "search_tmdb", input: { query: "Stalker" } },
+        responseSchema: { type: "object" },
       },
     };
 
     render(<MovieSearch />);
     fireEvent.click(screen.getByText("Search TMDB for more results"));
 
-    expect(mockApproveToolCall).toHaveBeenCalledWith("tc-1");
+    expect(mockRespondToInterrupt).toHaveBeenCalledWith("tc-1", {
+      approved: true,
+    });
   });
 
   it("hides button after approval completes", () => {
-    hookReturn = {
-      ...defaultHookReturn,
-      pendingApproval: null,
-    };
-
     render(<MovieSearch />);
     expect(screen.queryByText("Search TMDB for more results")).not.toBeInTheDocument();
   });
 
-  it("shows watchlist discoverability copy in the input", () => {
-    render(<MovieSearch />);
-    expect(
-      screen.getByPlaceholderText(
-        "what do you want to watch? Try: check my watchlist",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("renders A2UI surface from persisted watchlist context", () => {
-    chatResultsReturn = {
-      ...chatResultsReturn,
-      watchlistSurface: {
-        type: "watchlist-grid",
-        items: [
-          {
-            id: "00000000-0000-4000-8000-000000000001",
-            tmdbId: 1,
-            title: "Inception",
-            year: 2010,
-            synopsis: null,
-            genres: null,
-            cast: null,
-            directors: null,
-            runtime: null,
-            language: null,
-            posterUrl: null,
-            backdropUrl: null,
-            popularity: null,
-            releaseDate: null,
-            createdAt: "2024-01-01T00:00:00.000Z",
-            updatedAt: "2024-01-01T00:00:00.000Z",
-          },
+  it("renders the discovery surface from the A2UI store", () => {
+    applyMessage({
+      createSurface: { surfaceId: "discovery", catalogId: "videoclub" },
+    });
+    applyMessage({
+      updateComponents: {
+        surfaceId: "discovery",
+        components: [
+          { id: "root", component: "Column", children: ["filters", "grid"] },
+          { id: "filters", component: "MovieFilterPanel", data: { path: "/filters" } },
+          { id: "grid", component: "MovieGrid", data: { path: "/movies" } },
         ],
-        count: 1,
       },
-    };
+    });
+    applyMessage({
+      updateDataModel: {
+        surfaceId: "discovery",
+        path: "/filters",
+        value: { genres: ["Comedy"] },
+      },
+    });
+    applyMessage({
+      updateDataModel: {
+        surfaceId: "discovery",
+        path: "/movies",
+        value: [fakeMovie({ id: "uuid-1", title: "Bridesmaids" })],
+      },
+    });
 
     render(<MovieSearch />);
-    expect(screen.getByText("My Watchlist (0)")).toBeInTheDocument();
+    expect(screen.getByText("Comedy")).toBeInTheDocument();
+    expect(screen.getByText("Bridesmaids")).toBeInTheDocument();
   });
 
-  it("renders watchlist error surface message from persisted context", () => {
-    chatResultsReturn = {
-      ...chatResultsReturn,
-      watchlistSurface: {
-        type: "watchlist-grid",
-        items: [],
-        count: 0,
-        error: true,
-        message:
-          "Sorry, I couldn't load your watchlist right now. Please try again.",
+  it("renders the watchlist surface from the A2UI store", () => {
+    applyMessage({
+      createSurface: { surfaceId: "watchlist", catalogId: "videoclub" },
+    });
+    applyMessage({
+      updateComponents: {
+        surfaceId: "watchlist",
+        components: [
+          { id: "root", component: "Column", children: ["grid"] },
+          { id: "grid", component: "WatchlistGrid", data: { path: "/state" } },
+        ],
       },
-    };
+    });
+    applyMessage({
+      updateDataModel: {
+        surfaceId: "watchlist",
+        path: "/state",
+        value: {
+          items: [fakeMovie({ id: "uuid-1", title: "Inception" })],
+          state: "ok",
+        },
+      },
+    });
+
+    render(<MovieSearch />);
+    expect(screen.getByText("My Watchlist (1)")).toBeInTheDocument();
+  });
+
+  it("renders the watchlist error message from the A2UI store", () => {
+    applyMessage({
+      createSurface: { surfaceId: "watchlist", catalogId: "videoclub" },
+    });
+    applyMessage({
+      updateComponents: {
+        surfaceId: "watchlist",
+        components: [
+          { id: "root", component: "Column", children: ["grid"] },
+          { id: "grid", component: "WatchlistGrid", data: { path: "/state" } },
+        ],
+      },
+    });
+    applyMessage({
+      updateDataModel: {
+        surfaceId: "watchlist",
+        path: "/state",
+        value: {
+          items: [],
+          state: "error",
+          message:
+            "Sorry, I couldn't load your watchlist right now. Please try again.",
+        },
+      },
+    });
 
     render(<MovieSearch />);
     expect(
@@ -222,92 +239,220 @@ describe("MovieSearch", () => {
     ).toBeInTheDocument();
   });
 
-  it("clarification result renders candidate buttons", () => {
-    chatResultsReturn = {
-      ...chatResultsReturn,
-      clarification: {
-        action: "add",
-        candidates: [
-          {
-            id: "uuid-1",
-            tmdbId: 1,
-            title: "Arrival",
-            year: 2016,
-            synopsis: null,
-            genres: null,
-            cast: null,
-            directors: null,
-            runtime: null,
-            language: null,
-            posterUrl: null,
-            backdropUrl: null,
-            popularity: null,
-            releaseDate: null,
-            createdAt: "2024-01-01T00:00:00.000Z",
-            updatedAt: "2024-01-01T00:00:00.000Z",
-          },
-          {
-            id: "uuid-2",
-            tmdbId: 2,
-            title: "Arrival 2",
-            year: 2020,
-            synopsis: null,
-            genres: null,
-            cast: null,
-            directors: null,
-            runtime: null,
-            language: null,
-            posterUrl: null,
-            backdropUrl: null,
-            popularity: null,
-            releaseDate: null,
-            createdAt: "2024-01-01T00:00:00.000Z",
-            updatedAt: "2024-01-01T00:00:00.000Z",
-          },
-        ],
+  it("clarification interrupt renders candidate buttons", () => {
+    const candidates = [
+      fakeMovie({
+        id: "11111111-1111-4111-8111-111111111111",
+        title: "Dune",
+        year: 1984,
+      }),
+      fakeMovie({
+        id: "22222222-2222-4222-8222-222222222222",
+        title: "Dune",
+        year: 2021,
+      }),
+    ];
+
+    hookReturn = {
+      ...defaultHookReturn,
+      pendingInterrupt: {
+        id: "call_clar",
+        reason: "clarification",
+        message: "Which movie did you mean?",
+        proposed: { candidates },
+        responseSchema: { type: "object" },
       },
     };
 
     render(<MovieSearch />);
     expect(screen.getByText("Which movie did you mean?")).toBeInTheDocument();
-    expect(screen.getByText("Arrival (2016)")).toBeInTheDocument();
-    expect(screen.getByText("Arrival 2 (2020)")).toBeInTheDocument();
+    expect(screen.getByText("Dune (1984)")).toBeInTheDocument();
+    expect(screen.getByText("Dune (2021)")).toBeInTheDocument();
   });
 
-  it("clicking clarification candidate sends follow-up message with embedded movieId", () => {
-    chatResultsReturn = {
-      ...chatResultsReturn,
-      clarification: {
-        action: "add",
-        candidates: [
-          {
-            id: "uuid-1",
-            tmdbId: 1,
-            title: "Arrival",
-            year: 2016,
-            synopsis: null,
-            genres: null,
-            cast: null,
-            directors: null,
-            runtime: null,
-            language: null,
-            posterUrl: null,
-            backdropUrl: null,
-            popularity: null,
-            releaseDate: null,
-            createdAt: "2024-01-01T00:00:00.000Z",
-            updatedAt: "2024-01-01T00:00:00.000Z",
-          },
-        ],
+  it("clicking a clarification candidate calls respondToInterrupt with pickedMovieId", () => {
+    const candidates = [
+      fakeMovie({
+        id: "11111111-1111-4111-8111-111111111111",
+        title: "Dune",
+        year: 1984,
+      }),
+      fakeMovie({
+        id: "22222222-2222-4222-8222-222222222222",
+        title: "Dune",
+        year: 2021,
+      }),
+    ];
+
+    hookReturn = {
+      ...defaultHookReturn,
+      pendingInterrupt: {
+        id: "call_clar",
+        reason: "clarification",
+        message: "Which movie did you mean?",
+        proposed: { candidates },
+        responseSchema: { type: "object" },
       },
     };
 
     render(<MovieSearch />);
-    fireEvent.click(screen.getByText("Arrival (2016)"));
+    fireEvent.click(screen.getByText("Dune (2021)"));
 
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      "add [movieId:uuid-1] Arrival (2016) to my watchlist"
-    );
-    expect(mockSetClarification).toHaveBeenCalledWith(null);
+    expect(mockRespondToInterrupt).toHaveBeenCalledWith("call_clar", {
+      pickedMovieId: "22222222-2222-4222-8222-222222222222",
+    });
   });
+
+  it("review_delete success envelope with affected=['reviews'] triggers useReviews refetch", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      toolResults: [
+        {
+          toolName: "review_delete",
+          toolCallId: "tc-1",
+          result: {
+            kind: "success",
+            affected: ["reviews"],
+            message: "Review deleted for Inception",
+            movie: fakeMovie({
+              id: "11111111-1111-4111-8111-111111111111",
+              title: "Inception",
+              year: 2010,
+            }),
+          },
+        },
+      ],
+    };
+
+    render(<MovieSearch />);
+
+    expect(mockRefetchReviews).toHaveBeenCalledTimes(1);
+    expect(mockRefetch).not.toHaveBeenCalled();
+  });
+
+  it("watchlist_add success envelope with affected=['watchlist'] triggers useWatchlist refetch", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      toolResults: [
+        {
+          toolName: "watchlist_add",
+          toolCallId: "tc-1",
+          result: {
+            kind: "success",
+            affected: ["watchlist"],
+            message: "Inception added to watchlist",
+            movie: fakeMovie({
+              id: "11111111-1111-4111-8111-111111111111",
+              title: "Inception",
+              year: 2010,
+            }),
+          },
+        },
+      ],
+    };
+
+    render(<MovieSearch />);
+
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+    expect(mockRefetchReviews).not.toHaveBeenCalled();
+  });
+
+  it("renders the latest assistant text reply when no surface is active", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      messages: [
+        { id: "u1", role: "user", content: "compare the top 3" },
+        {
+          id: "a1",
+          role: "assistant",
+          content: "I need a prior search before I can compare.",
+        },
+      ],
+    };
+    render(<MovieSearch />);
+    expect(
+      screen.getByText("I need a prior search before I can compare."),
+    ).toBeInTheDocument();
+  });
+
+  it("does not render the assistant text fallback when a surface is active", () => {
+    applyMessage({
+      createSurface: { surfaceId: "discovery", catalogId: "videoclub" },
+    });
+    applyMessage({
+      updateComponents: {
+        surfaceId: "discovery",
+        components: [
+          { id: "root", component: "Column", children: ["grid"] },
+          { id: "grid", component: "MovieGrid", data: { path: "/movies" } },
+        ],
+      },
+    });
+    applyMessage({
+      updateDataModel: { surfaceId: "discovery", path: "/movies", value: [] },
+    });
+    hookReturn = {
+      ...defaultHookReturn,
+      messages: [
+        { id: "u1", role: "user", content: "find me a movie" },
+        { id: "a1", role: "assistant", content: "Here are some picks:" },
+      ],
+    };
+    render(<MovieSearch />);
+    expect(screen.queryByText("Here are some picks:")).not.toBeInTheDocument();
+  });
+
+  it("does not render the assistant text fallback when an interrupt is pending", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      messages: [
+        { id: "a1", role: "assistant", content: "Stale narration." },
+      ],
+      pendingInterrupt: {
+        id: "tc-1",
+        reason: "approval",
+        message: "Approve calling search_tmdb?",
+        proposed: { toolName: "search_tmdb", input: { query: "x" } },
+        responseSchema: { type: "object" },
+      },
+    };
+    render(<MovieSearch />);
+    expect(screen.queryByText("Stale narration.")).not.toBeInTheDocument();
+  });
+
+  it("ignores blank assistant messages", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      messages: [
+        { id: "u1", role: "user", content: "hi" },
+        { id: "a1", role: "assistant", content: "   " },
+      ],
+    };
+    const { container } = render(<MovieSearch />);
+    // Blank assistant message means no fallback paragraph
+    expect(container.querySelector("p.whitespace-pre-wrap")).toBeNull();
+  });
+
+  it("watchlist_add error envelope does not refetch", () => {
+    hookReturn = {
+      ...defaultHookReturn,
+      toolResults: [
+        {
+          toolName: "watchlist_add",
+          toolCallId: "tc-1",
+          result: {
+            kind: "error",
+            code: "not_found",
+            message: "I couldn't find 'Foo' in the local catalog.",
+          },
+        },
+      ],
+    };
+
+    render(<MovieSearch />);
+
+    expect(mockRefetch).not.toHaveBeenCalled();
+    expect(mockRefetchReviews).not.toHaveBeenCalled();
+  });
+
 });

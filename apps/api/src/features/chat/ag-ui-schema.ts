@@ -49,12 +49,25 @@ const contextSchema = z.object({
   description: z.string().optional(),
 });
 
+const interruptResponseSchema = z.object({
+  interruptId: z.string(),
+  response: z.unknown(),
+});
+
+const forwardedPropsSchema = z
+  .object({
+    interruptResponse: interruptResponseSchema.optional(),
+  })
+  .passthrough();
+
 export const runAgentInputSchema = z.object({
   threadId: z.string(),
   runId: z.string(),
   messages: z.array(messageSchema),
   tools: z.array(toolSchema).optional(),
   context: z.array(contextSchema).optional(),
+  forwardedProps: forwardedPropsSchema.optional(),
 });
 
 export type RunAgentInput = z.infer<typeof runAgentInputSchema>;
+export type InterruptResponse = z.infer<typeof interruptResponseSchema>;

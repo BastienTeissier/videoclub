@@ -1,14 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Operation } from "fast-json-patch";
 import { createAgentClient } from "@/lib/ag-ui/client";
+import { applyMessage, clearAllSurfaces } from "@/lib/a2ui/store";
+import { useMemoryContext } from "@/contexts/memory-context";
+import {
+  a2uiMessageSchema,
+  interruptRunFinishedResultSchema,
+  jsonPatchOpsSchema,
+  viewingPreferencesSchema,
+  type Interrupt,
+} from "@repo/contracts";
 import type { HttpAgent, Message } from "@ag-ui/client";
-
-interface PendingApproval {
-  toolCallId: string;
-  toolName: string;
-  args: Record<string, unknown>;
-}
 
 interface ChatMessage {
   id: string;
@@ -23,18 +27,20 @@ interface ToolResult {
 }
 
 export function useAgentChat() {
+  const memory = useMemoryContext();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
+  const [pendingInterrupt, setPendingInterrupt] = useState<Interrupt | null>(
+    null,
+  );
   const [toolResults, setToolResults] = useState<ToolResult[]>([]);
 
   const agentRef = useRef<HttpAgent | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const threadIdRef = useRef<string | undefined>(undefined);
 
-  // Track tool calls that have been started but not yet received results
-  const pendingToolCallsRef = useRef<Map<string, { toolName: string; args: Record<string, unknown> }>>(new Map());
+  const pendingToolCallNamesRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     return () => {
@@ -48,7 +54,6 @@ export function useAgentChat() {
   }, []);
 
   const setupAgent = useCallback(() => {
-    // Clean up previous
     if (unsubscribeRef.current) {
       unsubscribeRef.current();
     }
@@ -73,17 +78,48 @@ export function useAgentChat() {
         });
       },
 
-      onToolCallEndEvent({ event, toolCallName, toolCallArgs }) {
-        pendingToolCallsRef.current.set(event.toolCallId, {
-          toolName: toolCallName,
-          args: toolCallArgs,
-        });
+      onCustomEvent({ event }) {
+        if (event.name === "a2ui") {
+          const parsed = a2uiMessageSchema.safeParse(event.value);
+          if (parsed.success) applyMessage(parsed.data);
+          else console.warn("[use-agent-chat] dropped invalid a2ui event", parsed.error);
+          return;
+        }
+        if (event.name === "memory-applied") {
+          const value = event.value as { keys?: unknown } | undefined;
+          const keys = value?.keys;
+          if (Array.isArray(keys)) {
+            memory.markApplied(
+              keys.filter((k): k is string => typeof k === "string"),
+            );
+          }
+          return;
+        }
+      },
+
+      onStateSnapshotEvent({ event }) {
+        const raw = (event as { snapshot?: unknown }).snapshot;
+        const parsed = viewingPreferencesSchema.safeParse(raw ?? {});
+        if (parsed.success) memory.applySnapshot(parsed.data);
+        else console.warn("[use-agent-chat] dropped invalid STATE_SNAPSHOT", parsed.error);
+      },
+
+      onStateDeltaEvent({ event }) {
+        const raw = (event as { delta?: unknown }).delta;
+        const parsed = jsonPatchOpsSchema.safeParse(raw);
+        if (parsed.success) memory.applyDelta(parsed.data as Operation[]);
+        else console.warn("[use-agent-chat] dropped invalid STATE_DELTA", parsed.error);
+      },
+
+      onToolCallEndEvent({ event, toolCallName }) {
+        pendingToolCallNamesRef.current.set(event.toolCallId, toolCallName);
       },
 
       onToolCallResultEvent({ event }) {
         const toolCallId = event.toolCallId;
-        const pending = pendingToolCallsRef.current.get(toolCallId);
-        pendingToolCallsRef.current.delete(toolCallId);
+        const toolName =
+          pendingToolCallNamesRef.current.get(toolCallId) ?? "";
+        pendingToolCallNamesRef.current.delete(toolCallId);
 
         let parsed: unknown;
         const raw = event.content ?? event.result;
@@ -95,25 +131,17 @@ export function useAgentChat() {
 
         setToolResults((prev) => [
           ...prev,
-          {
-            toolName: pending?.toolName ?? "",
-            toolCallId,
-            result: parsed,
-          },
+          { toolName, toolCallId, result: parsed },
         ]);
       },
 
-      onRunFinishedEvent() {
+      onRunFinishedEvent({ event }) {
         setIsLoading(false);
 
-        // Check for tool calls without results — pending approval
-        for (const [toolCallId, info] of pendingToolCallsRef.current.entries()) {
-          setPendingApproval({
-            toolCallId,
-            toolName: info.toolName,
-            args: info.args,
-          });
-          break; // Only one pending approval at a time
+        const result = (event as { result?: unknown }).result;
+        const parsed = interruptRunFinishedResultSchema.safeParse(result);
+        if (parsed.success && parsed.data.interrupts.length > 0) {
+          setPendingInterrupt(parsed.data.interrupts[0]!);
         }
       },
 
@@ -125,7 +153,7 @@ export function useAgentChat() {
 
     unsubscribeRef.current = unsubscribe;
     return agent;
-  }, []);
+  }, [memory]);
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -133,10 +161,11 @@ export function useAgentChat() {
       if (!trimmed) return;
 
       setError(null);
-      setPendingApproval(null);
+      setPendingInterrupt(null);
       setToolResults([]);
       setIsLoading(true);
-      pendingToolCallsRef.current.clear();
+      pendingToolCallNamesRef.current.clear();
+      clearAllSurfaces();
 
       setMessages((prev) => [
         ...prev,
@@ -145,14 +174,12 @@ export function useAgentChat() {
 
       const agent = setupAgent();
 
-      // Add user message to agent's internal state so it's sent in the request
       agent.addMessage({
         id: `user-${Date.now()}`,
         role: "user",
         content: trimmed,
       } as Message);
 
-      // Store threadId from agent after first run
       if (!threadIdRef.current) {
         threadIdRef.current = agent.threadId;
       }
@@ -164,56 +191,43 @@ export function useAgentChat() {
         setError(err instanceof Error ? err.message : "Failed to send message");
       }
     },
-    [setupAgent]
+    [setupAgent],
   );
 
-  const approveToolCall = useCallback(
-    async (toolCallId: string) => {
+  const respondToInterrupt = useCallback(
+    async (interruptId: string, response: unknown) => {
       if (!agentRef.current) return;
 
       setIsLoading(true);
-      setPendingApproval(null);
-      pendingToolCallsRef.current.clear();
-
-      // Add a tool message as approval response
-      const approvalMessage: Message = {
-        id: `tool-approval-${Date.now()}`,
-        role: "tool",
-        toolCallId,
-        content: JSON.stringify({ approved: true }),
-      } as Message;
-
-      agentRef.current.messages = [
-        ...agentRef.current.messages,
-        approvalMessage,
-      ];
+      setPendingInterrupt(null);
+      pendingToolCallNamesRef.current.clear();
 
       try {
-        await agentRef.current.runAgent();
+        await agentRef.current.runAgent({
+          forwardedProps: { interruptResponse: { interruptId, response } },
+        });
       } catch (err) {
         setIsLoading(false);
-        setError(err instanceof Error ? err.message : "Failed to approve tool call");
+        setError(
+          err instanceof Error ? err.message : "Failed to respond to interrupt",
+        );
       }
     },
-    []
+    [],
   );
 
-  const rejectToolCall = useCallback(
-    async (toolCallId: string) => {
-      setPendingApproval(null);
-      pendingToolCallsRef.current.delete(toolCallId);
-    },
-    []
-  );
+  const cancelInterrupt = useCallback(() => {
+    setPendingInterrupt(null);
+  }, []);
 
   return {
     messages,
     isLoading,
     error,
-    pendingApproval,
+    pendingInterrupt,
     toolResults,
     sendMessage,
-    approveToolCall,
-    rejectToolCall,
+    respondToInterrupt,
+    cancelInterrupt,
   };
 }

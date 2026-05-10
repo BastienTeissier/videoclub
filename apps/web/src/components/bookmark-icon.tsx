@@ -1,7 +1,7 @@
 "use client";
 
 import { Bookmark, BookmarkCheck } from "lucide-react";
-import { useWatchlist } from "@/contexts/watchlist-context";
+import { useMovieState } from "@/hooks/use-movie-state";
 import { toast } from "@repo/ui";
 
 interface BookmarkIconProps {
@@ -11,14 +11,13 @@ interface BookmarkIconProps {
 }
 
 export function BookmarkIcon({ movieId, movieTitle, className }: BookmarkIconProps) {
-  const { isInWatchlist, toggleWatchlist } = useWatchlist();
-  const inWatchlist = isInWatchlist(movieId);
+  const { inWatchlist, toggleWatchlist } = useMovieState(movieId);
 
   async function handleClick(e: React.MouseEvent) {
     e.stopPropagation();
 
     try {
-      await toggleWatchlist(movieId);
+      await toggleWatchlist();
       toast({
         description: inWatchlist
           ? `${movieTitle} removed from watchlist`

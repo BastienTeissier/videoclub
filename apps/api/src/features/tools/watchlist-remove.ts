@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { Database } from "@repo/db";
 import { watchlistRepository, moviesRepository } from "@repo/db";
+import type { MutationOutcome } from "@repo/contracts";
 import { watchlistService } from "../../services/watchlist.js";
 import { movieToDto } from "./movie-to-dto.js";
 
@@ -21,33 +22,33 @@ export function createWatchlistRemoveTool(db: Database, userId: string) {
         .optional()
         .describe("Optional movie ID to skip search and remove directly"),
     }),
-    execute: async ({ title, movieId }) => {
+    execute: async ({ title, movieId }): Promise<MutationOutcome> => {
       try {
-        // Direct remove by movieId
         if (movieId) {
           const inWatchlist = await watchlistRepo.isInWatchlist(userId, movieId);
           if (!inWatchlist) {
             return {
-              error: "not_in_watchlist",
-              message: `That movie is not in your watchlist.`,
+              kind: "error",
+              code: "not_found",
+              message: "That movie is not in your watchlist.",
             };
           }
           const movie = await moviesRepo.findById(movieId);
           const result = await service.remove(userId, movieId);
           return {
-            removed: result.removed,
+            kind: "success",
+            affected: ["watchlist"],
             message: result.message,
-            movieId,
-            movie: movie ? movieToDto(movie) : null,
+            ...(movie ? { movie: movieToDto(movie) } : {}),
           };
         }
 
-        // Search by title within user's watchlist
         const matches = await watchlistRepo.searchByTitleInWatchlist(userId, title);
 
         if (matches.length === 0) {
           return {
-            error: "not_in_watchlist",
+            kind: "error",
+            code: "not_found",
             message: `No movie matching '${title}' found in your watchlist.`,
           };
         }
@@ -56,22 +57,21 @@ export function createWatchlistRemoveTool(db: Database, userId: string) {
           const movie = matches[0]!;
           const result = await service.remove(userId, movie.id);
           return {
-            removed: result.removed,
+            kind: "success",
+            affected: ["watchlist"],
             message: result.message,
-            movieId: movie.id,
             movie: movieToDto(movie),
           };
         }
 
-        // Multiple matches — ask for clarification
         return {
-          clarification_needed: true,
-          action: "remove" as const,
+          kind: "needs-clarification",
           candidates: matches.map(movieToDto),
         };
       } catch {
         return {
-          error: "service_error",
+          kind: "error",
+          code: "service_error",
           message:
             "Sorry, I couldn't remove the movie from your watchlist right now. Please try again.",
         };

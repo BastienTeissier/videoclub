@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import type { ComponentNode } from "@repo/contracts";
 import { WatchlistGrid } from "./watchlist-grid";
-import type { WatchlistGridSurface } from "@repo/contracts";
+import { applyMessage, clearAllSurfaces } from "../store";
 
 const mockIsInWatchlist = vi.fn();
 
@@ -12,9 +13,19 @@ vi.mock("@/contexts/watchlist-context", () => ({
   }),
 }));
 
-vi.mock("@repo/ui", () => ({
-  toast: vi.fn(),
+vi.mock("@/contexts/review-context", () => ({
+  useReviews: () => ({
+    getReviewRating: () => undefined,
+    upsertReview: vi.fn(),
+    deleteReview: vi.fn(),
+    refetch: vi.fn(),
+  }),
 }));
+
+vi.mock("@repo/ui", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@repo/ui")>();
+  return { ...actual, toast: vi.fn() };
+});
 
 const fakeMovie = (id: number) => ({
   id: `00000000-0000-4000-8000-00000000000${id}`,
@@ -35,47 +46,57 @@ const fakeMovie = (id: number) => ({
   updatedAt: "2024-01-01T00:00:00.000Z",
 });
 
-describe("WatchlistGrid", () => {
-  it("renders header with filtered count", () => {
+const node: ComponentNode = {
+  id: "grid",
+  component: "WatchlistGrid",
+  data: { path: "/state" },
+};
+
+function seed(state: { items: ReturnType<typeof fakeMovie>[]; state: "ok" | "empty" | "error"; message?: string }) {
+  applyMessage({ createSurface: { surfaceId: "watchlist", catalogId: "videoclub" } });
+  applyMessage({
+    updateDataModel: { surfaceId: "watchlist", path: "/state", value: state },
+  });
+}
+
+describe("WatchlistGrid (protocol)", () => {
+  beforeEach(() => {
+    clearAllSurfaces();
+    mockIsInWatchlist.mockReset();
+  });
+
+  it("renders header with filtered count when state=ok", () => {
     mockIsInWatchlist.mockReturnValue(true);
-
-    const data: WatchlistGridSurface = {
-      type: "watchlist-grid",
+    seed({
       items: [fakeMovie(1), fakeMovie(2), fakeMovie(3), fakeMovie(4), fakeMovie(5)],
-      count: 5,
-    };
+      state: "ok",
+    });
 
-    render(<WatchlistGrid data={data} />);
-
+    render(<WatchlistGrid node={node} surfaceId="watchlist" />);
     expect(screen.getByText("My Watchlist (5)")).toBeInTheDocument();
   });
 
   it("renders poster cards for active items", () => {
     mockIsInWatchlist.mockReturnValue(true);
-
-    const data: WatchlistGridSurface = {
-      type: "watchlist-grid",
+    seed({
       items: [fakeMovie(1), fakeMovie(2), fakeMovie(3)],
-      count: 3,
-    };
+      state: "ok",
+    });
 
-    render(<WatchlistGrid data={data} />);
-
+    render(<WatchlistGrid node={node} surfaceId="watchlist" />);
     expect(screen.getByText("Movie 1")).toBeInTheDocument();
     expect(screen.getByText("Movie 2")).toBeInTheDocument();
     expect(screen.getByText("Movie 3")).toBeInTheDocument();
   });
 
-  it("renders empty-state message", () => {
-    const data: WatchlistGridSurface = {
-      type: "watchlist-grid",
+  it("renders empty-state message when state=empty", () => {
+    seed({
       items: [],
-      count: 0,
+      state: "empty",
       message: "Your watchlist is empty. Search for movies to get started!",
-    };
+    });
 
-    render(<WatchlistGrid data={data} />);
-
+    render(<WatchlistGrid node={node} surfaceId="watchlist" />);
     expect(
       screen.getByText(
         "Your watchlist is empty. Search for movies to get started!",
@@ -83,37 +104,33 @@ describe("WatchlistGrid", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders error message without grid", () => {
-    const data: WatchlistGridSurface = {
-      type: "watchlist-grid",
+  it("renders error message when state=error", () => {
+    seed({
       items: [],
-      count: 0,
-      error: true,
+      state: "error",
       message:
         "Sorry, I couldn't load your watchlist right now. Please try again.",
-    };
+    });
 
-    render(<WatchlistGrid data={data} />);
-
+    render(<WatchlistGrid node={node} surfaceId="watchlist" />);
     expect(
       screen.getByText(
         "Sorry, I couldn't load your watchlist right now. Please try again.",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByText("My Watchlist")).not.toBeInTheDocument();
+    expect(screen.queryByText(/My Watchlist/)).not.toBeInTheDocument();
   });
 
   it("filters out items removed from context", () => {
-    mockIsInWatchlist.mockImplementation((id: string) => id !== "00000000-0000-4000-8000-000000000002");
-
-    const data: WatchlistGridSurface = {
-      type: "watchlist-grid",
+    mockIsInWatchlist.mockImplementation(
+      (id: string) => id !== "00000000-0000-4000-8000-000000000002",
+    );
+    seed({
       items: [fakeMovie(1), fakeMovie(2), fakeMovie(3)],
-      count: 3,
-    };
+      state: "ok",
+    });
 
-    render(<WatchlistGrid data={data} />);
-
+    render(<WatchlistGrid node={node} surfaceId="watchlist" />);
     expect(screen.getByText("My Watchlist (2)")).toBeInTheDocument();
     expect(screen.getByText("Movie 1")).toBeInTheDocument();
     expect(screen.queryByText("Movie 2")).not.toBeInTheDocument();

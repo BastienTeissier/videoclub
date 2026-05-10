@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@source "../../../../packages/ui/src/**/*.{ts,tsx}";
+
 @theme {
   --color-background: #09090b;
   --color-card: #18181b;
@@ -22,4 +24,17 @@ body {
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
+}
+
+@keyframes a2ui-flash {
+  0% {
+    background-color: var(--color-accent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.a2ui-flash {
+  animation: a2ui-flash 1.4s ease-out;
 }
