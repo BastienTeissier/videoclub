@@ -3,10 +3,11 @@ import {
   registerHighlighter,
   triggerHighlight,
 } from "./highlight-registry";
+import { clearAllSurfaces } from "./store";
 
 describe("highlight-registry", () => {
   beforeEach(() => {
-    // Each test cleans up its own registration via the returned unsubscribe.
+    clearAllSurfaces();
   });
 
   it("triggerHighlight returns false when no handler is registered", () => {
@@ -31,17 +32,25 @@ describe("highlight-registry", () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
-  it("re-registering replaces the previous fn", () => {
+  it("multiple registrations on the same surface all receive flashes", () => {
     const first = vi.fn();
     const second = vi.fn();
     const u1 = registerHighlighter("s", first);
     const u2 = registerHighlighter("s", second);
 
     triggerHighlight("s", ["x"]);
-    expect(first).not.toHaveBeenCalled();
+    expect(first).toHaveBeenCalledWith(["x"]);
     expect(second).toHaveBeenCalledWith(["x"]);
 
     u1();
     u2();
+  });
+
+  it("clearAllSurfaces() also clears registered highlighters", () => {
+    const fn = vi.fn();
+    registerHighlighter("s", fn);
+    clearAllSurfaces();
+    expect(triggerHighlight("s", ["x"])).toBe(false);
+    expect(fn).not.toHaveBeenCalled();
   });
 });
