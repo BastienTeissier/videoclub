@@ -52,6 +52,7 @@ const mockMessageCreate = vi.fn();
 const mockFindBySessionId = vi.fn();
 const mockSessionCreate = vi.fn();
 const mockSessionFindById = vi.fn();
+const mockSessionFindByIdForUser = vi.fn();
 const mockCreateRun = vi.fn();
 const mockCreateToolCall = vi.fn();
 const mockCompleteToolCall = vi.fn();
@@ -59,6 +60,7 @@ const mockCompleteRun = vi.fn();
 const mockFailRun = vi.fn();
 const mockFindToolCallByAiSdkCallId = vi.fn();
 const mockFindCompletedToolCallsBySessionId = vi.fn();
+const mockFindRunById = vi.fn();
 
 vi.mock("@repo/db", () => ({
   chatMessagesRepository: vi.fn(() => ({
@@ -68,6 +70,7 @@ vi.mock("@repo/db", () => ({
   agentSessionsRepository: vi.fn(() => ({
     create: mockSessionCreate,
     findById: mockSessionFindById,
+    findByIdForUser: mockSessionFindByIdForUser,
   })),
   agentRunsRepository: vi.fn(() => ({
     createRun: mockCreateRun,
@@ -77,6 +80,7 @@ vi.mock("@repo/db", () => ({
     failRun: mockFailRun,
     findToolCallByAiSdkCallId: mockFindToolCallByAiSdkCallId,
     findCompletedToolCallsBySessionId: mockFindCompletedToolCallsBySessionId,
+    findRunById: mockFindRunById,
   })),
 }));
 
@@ -119,6 +123,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockSessionCreate.mockResolvedValue({ id: "session-1" });
   mockSessionFindById.mockResolvedValue({ id: "session-1" });
+  mockSessionFindByIdForUser.mockResolvedValue({ id: "session-1" });
+  mockFindRunById.mockResolvedValue({ id: "run-1", sessionId: "session-1" });
   mockMessageCreate.mockResolvedValue({ id: "msg-1" });
   mockFindBySessionId.mockResolvedValue([
     { id: "msg-1", role: "user", content: "test", createdAt: new Date() },
@@ -300,7 +306,7 @@ describe("agentRun.start", () => {
   });
 
   it("replays prior completed tool calls as assistant tool-call + tool tool-result pairs after the originating user message", async () => {
-    mockSessionFindById.mockResolvedValue({ id: "session-existing" });
+    mockSessionFindByIdForUser.mockResolvedValue({ id: "session-existing" });
     mockFindBySessionId.mockResolvedValue([
       { id: "prev-1", role: "user", content: "feel-good comedy", createdAt: new Date("2024-01-01") },
       { id: "prev-2", role: "assistant", content: "", createdAt: new Date("2024-01-02") },
@@ -355,7 +361,7 @@ describe("agentRun.start", () => {
   });
 
   it("loads previous session messages and prepends them to the model history", async () => {
-    mockSessionFindById.mockResolvedValue({ id: "session-existing" });
+    mockSessionFindByIdForUser.mockResolvedValue({ id: "session-existing" });
     mockFindBySessionId.mockResolvedValue([
       { id: "prev-1", role: "user", content: "old question", createdAt: new Date("2024-01-01") },
       { id: "prev-2", role: "assistant", content: "old answer", createdAt: new Date("2024-01-02") },
@@ -404,6 +410,7 @@ describe("agentRun.resume", () => {
       output: { kind: "needs-clarification", candidates: [] },
       runId: "run-orig",
     });
+    mockFindRunById.mockResolvedValue({ id: "run-orig", sessionId: "session-1" });
     mockCreateToolCall.mockResolvedValue({ id: "tc-row-2" });
 
     await drain(
@@ -447,5 +454,83 @@ describe("agentRun.resume", () => {
         }),
       ),
     ).rejects.toThrow(/No tool call found/);
+  });
+
+  it("refuses to resume when the threadId does not belong to the user (ownership mismatch)", async () => {
+    mockFindToolCallByAiSdkCallId.mockResolvedValue({
+      id: "tc-row-1",
+      aiSdkCallId: "call_abc",
+      toolName: "review_delete",
+      input: { title: "Dune" },
+      output: { kind: "needs-clarification", candidates: [] },
+      runId: "run-orig",
+    });
+    mockSessionFindByIdForUser.mockResolvedValue(null); // ownership mismatch
+
+    await expect(
+      drain(
+        agentRun(fakeDb).resume({
+          userId: "user-1",
+          threadId: "someone-elses-session",
+          runId: "ag-run-2",
+          interruptId: "call_abc",
+          response: { pickedMovieId: "movie-42" },
+        }),
+      ),
+    ).rejects.toThrow(/Session not found/);
+  });
+
+  it("refuses to resume when the pending interrupt belongs to a different session", async () => {
+    mockFindToolCallByAiSdkCallId.mockResolvedValue({
+      id: "tc-row-1",
+      aiSdkCallId: "call_abc",
+      toolName: "review_delete",
+      input: { title: "Dune" },
+      output: { kind: "needs-clarification", candidates: [] },
+      runId: "run-orig",
+    });
+    mockSessionFindByIdForUser.mockResolvedValue({ id: "session-A" });
+    mockFindRunById.mockResolvedValue({
+      id: "run-orig",
+      sessionId: "session-B", // run belongs to a different session
+    });
+
+    await expect(
+      drain(
+        agentRun(fakeDb).resume({
+          userId: "user-1",
+          threadId: "session-A",
+          runId: "ag-run-2",
+          interruptId: "call_abc",
+          response: {},
+        }),
+      ),
+    ).rejects.toThrow(/Interrupt does not belong/);
+  });
+});
+
+describe("agentRun.start ownership", () => {
+  it("creates a fresh session when threadId does not belong to the user", async () => {
+    mockSessionFindByIdForUser.mockResolvedValue(null); // mismatch
+    mockSessionCreate.mockResolvedValue({ id: "session-new" });
+
+    await drain(
+      agentRun(fakeDb).start({
+        userId: "user-1",
+        threadId: "someone-elses-session",
+        runId: "ag-run-1",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    );
+
+    // Did not read the foreign session, started a new one for this user.
+    expect(mockSessionFindByIdForUser).toHaveBeenCalledWith(
+      "someone-elses-session",
+      "user-1",
+    );
+    expect(mockSessionCreate).toHaveBeenCalledWith("user-1");
+    expect(mockCreateRun).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "session-new" }),
+    );
   });
 });

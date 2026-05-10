@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import {
   applyPatch,
   type ViewingPreferences,
@@ -30,6 +30,17 @@ export function agentSessionsRepository(db: Database) {
         .select()
         .from(agentSessions)
         .where(eq(agentSessions.id, id));
+      return session ?? null;
+    },
+
+    // Ownership-scoped lookup. Use this instead of `findById` for any code
+    // path that accepts a `threadId` from a request, so that user A cannot
+    // read or write user B's session by guessing the id.
+    async findByIdForUser(id: string, userId: string) {
+      const [session] = await db
+        .select()
+        .from(agentSessions)
+        .where(and(eq(agentSessions.id, id), eq(agentSessions.userId, userId)));
       return session ?? null;
     },
 

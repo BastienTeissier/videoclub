@@ -227,7 +227,13 @@ export function agentRun(db: Database) {
   }
 
   async function* start(input: StartInput): AsyncGenerator<string> {
-    let session = input.threadId ? await sessions.findById(input.threadId) : null;
+    // Ownership-scoped lookup: a threadId that doesn't belong to this user
+    // is treated as not-found so we silently start a fresh session rather
+    // than read or write into someone else's thread. (`findByIdForUser`
+    // returns null on mismatch.)
+    let session = input.threadId
+      ? await sessions.findByIdForUser(input.threadId, input.userId)
+      : null;
     if (!session) session = await sessions.create(input.userId);
 
     const lastUserMessage = [...input.messages]
@@ -295,9 +301,23 @@ export function agentRun(db: Database) {
       throw new Error(`No tool call found for interrupt ${input.interruptId}`);
     }
 
-    const session = await sessions.findById(input.threadId);
+    // Ownership-scoped lookup: refuse to resume against a session that
+    // doesn't belong to this user. Mismatch is indistinguishable from
+    // not-found by design — don't leak whether the threadId exists.
+    const session = await sessions.findByIdForUser(
+      input.threadId,
+      input.userId,
+    );
     if (!session) {
       throw new Error(`Session not found: ${input.threadId}`);
+    }
+
+    // Defense-in-depth: also verify the pending tool call belongs to this
+    // session (prevents resuming a tool call from another session by
+    // pairing its interruptId with this user's threadId).
+    const pendingRun = await runs.findRunById(pending.runId);
+    if (!pendingRun || pendingRun.sessionId !== session.id) {
+      throw new Error(`Interrupt does not belong to this session`);
     }
 
     const tools = buildToolset(db, input.userId);

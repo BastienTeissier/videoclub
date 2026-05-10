@@ -5,6 +5,14 @@ import type { Database } from "../client/index.js";
 
 export function agentRunsRepository(db: Database) {
   return {
+    async findRunById(id: string) {
+      const [run] = await db
+        .select()
+        .from(agentRuns)
+        .where(eq(agentRuns.id, id));
+      return run ?? null;
+    },
+
     async createRun(data: { sessionId: string; messageId?: string | null }) {
       const [run] = await db
         .insert(agentRuns)
