@@ -19,7 +19,6 @@ function Harness({
   useEffect(() => {
     if (initial) applySnapshot(initial);
     if (flash) markApplied(flash);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return null;
 }
