@@ -20,6 +20,7 @@ import { createReviewPrefillTool } from "../../features/tools/review-prefill.js"
 import { createReviewShowTool } from "../../features/tools/review-show.js";
 import { createReviewDeleteTool } from "../../features/tools/review-delete.js";
 import { createUpdatePreferencesTool } from "../../features/tools/update-preferences.js";
+import { createCommitMovieNightTool } from "../../features/tools/commit-movie-night.js";
 import {
   streamAgUiEvents,
   stripUiNoise,
@@ -90,6 +91,7 @@ function buildToolset(
   db: Database,
   userId: string,
   sessionId: string,
+  runDbId: string,
 ): ToolSet {
   return {
     discovery: createDiscoveryTool(db),
@@ -101,6 +103,7 @@ function buildToolset(
     review_show: createReviewShowTool(db, userId),
     review_delete: createReviewDeleteTool(db, userId),
     update_preferences: createUpdatePreferencesTool(db, sessionId),
+    commit_movie_night: createCommitMovieNightTool(db, userId, runDbId),
   };
 }
 
@@ -228,7 +231,7 @@ export function agentRun(db: Database) {
       model: getModel(),
       system: systemPrompt,
       messages: p.messages,
-      tools: buildToolset(db, p.userId, p.sessionId),
+      tools: buildToolset(db, p.userId, p.sessionId, p.runDbId),
       stopWhen: stepCountIs(5),
       onFinish: buildOnFinish(p.runDbId, p.sessionId),
       onError: async ({ error }) => {
@@ -345,7 +348,7 @@ export function agentRun(db: Database) {
       throw new Error(`Interrupt does not belong to this session`);
     }
 
-    const tools = buildToolset(db, input.userId, session.id);
+    const tools = buildToolset(db, input.userId, session.id, pending.runId);
     const toolName = pending.toolName as keyof typeof tools;
     const tool = tools[toolName];
     if (!tool || typeof tool.execute !== "function") {

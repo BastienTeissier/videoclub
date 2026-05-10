@@ -37,6 +37,9 @@ vi.mock("../../features/tools/review-delete.js", () => ({
 vi.mock("../../features/tools/update-preferences.js", () => ({
   createUpdatePreferencesTool: vi.fn(() => ({ type: "update_preferences_tool" })),
 }));
+vi.mock("../../features/tools/commit-movie-night.js", () => ({
+  createCommitMovieNightTool: vi.fn(() => ({ type: "commit_movie_night_tool" })),
+}));
 
 vi.mock("./ag-ui-stream.js", () => ({
   streamAgUiEvents: vi.fn(async function* () {
@@ -166,9 +169,29 @@ describe("agentRun.start", () => {
           review_show: expect.anything(),
           review_delete: expect.anything(),
           update_preferences: expect.anything(),
+          commit_movie_night: expect.anything(),
         }),
       }),
     );
+  });
+
+  it("threads runDbId into createCommitMovieNightTool on start", async () => {
+    const commitModule = await import(
+      "../../features/tools/commit-movie-night.js"
+    );
+    const commitFactory = vi.mocked(commitModule.createCommitMovieNightTool);
+    commitFactory.mockClear();
+    mockCreateRun.mockResolvedValueOnce({ id: "run-bound" });
+
+    await drain(
+      agentRun(fakeDb).start({
+        userId: "user-1",
+        runId: "ag-run-1",
+        messages: [{ role: "user", content: "test" }],
+      }),
+    );
+
+    expect(commitFactory).toHaveBeenCalledWith(fakeDb, "user-1", "run-bound");
   });
 
   it("passes messages array to streamText (no `prompt`)", async () => {
