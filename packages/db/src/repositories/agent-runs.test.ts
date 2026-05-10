@@ -166,6 +166,102 @@ describe("agentRunsRepository", () => {
     expect(result[2]!.runMessageId).toBe(m2.id);
   });
 
+  describe("findLatestPendingApprovalToolCall", () => {
+    it("returns the most recent pending approval tool call scoped to user", async () => {
+      const sessions = agentSessionsRepository(db);
+      const runs = agentRunsRepository(db);
+
+      const sessionA = await sessions.create("user-pending-A");
+      const runA = await runs.createRun({ sessionId: sessionA.id });
+      const olderTc = await runs.createToolCall({
+        runId: runA.id,
+        toolName: "commit_movie_night",
+        input: { pickedMovieId: "old" },
+        aiSdkCallId: "older",
+      });
+      const newerTc = await runs.createToolCall({
+        runId: runA.id,
+        toolName: "commit_movie_night",
+        input: { pickedMovieId: "new" },
+        aiSdkCallId: "newer",
+      });
+
+      const sessionB = await sessions.create("user-pending-B");
+      const runB = await runs.createRun({ sessionId: sessionB.id });
+      await runs.createToolCall({
+        runId: runB.id,
+        toolName: "commit_movie_night",
+        input: { pickedMovieId: "user-b-pick" },
+        aiSdkCallId: "user-b",
+      });
+
+      const found = await runs.findLatestPendingApprovalToolCall(
+        "user-pending-A",
+      );
+      expect(found).not.toBeNull();
+      expect(found!.id).toBe(newerTc.id);
+      expect(found!.toolName).toBe("commit_movie_night");
+      expect(found!.runId).toBe(runA.id);
+      expect(found!.sessionId).toBe(sessionA.id);
+      // Sanity: avoid lint flag for unused variable.
+      expect(olderTc.id).not.toBe(newerTc.id);
+    });
+
+    it("ignores completed approval rows", async () => {
+      const sessions = agentSessionsRepository(db);
+      const runs = agentRunsRepository(db);
+
+      const session = await sessions.create("user-pending-completed");
+      const run = await runs.createRun({ sessionId: session.id });
+      const completed = await runs.createToolCall({
+        runId: run.id,
+        toolName: "commit_movie_night",
+        input: { pickedMovieId: "done" },
+        aiSdkCallId: "done",
+      });
+      await runs.completeToolCall(completed.id, {
+        output: { kind: "success" },
+        durationMs: 1,
+      });
+      const pending = await runs.createToolCall({
+        runId: run.id,
+        toolName: "search_tmdb",
+        input: { query: "x" },
+        aiSdkCallId: "pending-search",
+      });
+
+      const found = await runs.findLatestPendingApprovalToolCall(
+        "user-pending-completed",
+      );
+      expect(found).not.toBeNull();
+      expect(found!.id).toBe(pending.id);
+      expect(found!.toolName).toBe("search_tmdb");
+    });
+
+    it("returns null when there are no pending approval rows", async () => {
+      const sessions = agentSessionsRepository(db);
+      const runs = agentRunsRepository(db);
+
+      const session = await sessions.create("user-pending-none");
+      const run = await runs.createRun({ sessionId: session.id });
+      const tc = await runs.createToolCall({
+        runId: run.id,
+        toolName: "commit_movie_night",
+        input: {},
+        aiSdkCallId: "tc-none",
+      });
+      await runs.completeToolCall(tc.id, {
+        output: { kind: "success" },
+        durationMs: 1,
+      });
+
+      const found = await runs.findLatestPendingApprovalToolCall(
+        "user-pending-none",
+      );
+      expect(found).toBeNull();
+    });
+  });
+
   it("findCompletedToolCallsBySessionId scopes to the given session", async () => {
     const sessions = agentSessionsRepository(db);
     const runs = agentRunsRepository(db);
