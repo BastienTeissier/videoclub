@@ -41,6 +41,8 @@ export function createDiscoveryTool(db: Database) {
   return tool({
     description: `Movie-discovery surface. Call this whenever the user asks for movies to watch, wants to compare a shortlist, or wants to finalize a movie-night pick. Extracts filters from the natural-language query and emits an A2UI surface progressively.
 
+Before calling, classify the user's referent. If they refer to movies already shown in this thread (e.g. "the top 3", "those", "compare", "pick one"), pass view="comparison" or view="night-plan" with IDs from the most recent prior result of this tool — do NOT call view="grid" first.
+
 ${getCatalogPromptDescription()}
 
 Pick \`view: "comparison"\` when the user wants a side-by-side compare across a shortlist (>=2 movie ids) of already-discussed movies; pass \`shortlistMovieIds\` (the ids the user asked about) and optional \`comparisonCriteria\` (e.g., ["runtime", "mood", "group-safety"]). Pick \`view: "night-plan"\` when the user asks to pick one for tonight; pass \`pickedMovieId\`, optional \`backupMovieIds\`, and a short \`reason\`. Default to \`view: "grid"\` for fresh discovery queries.
