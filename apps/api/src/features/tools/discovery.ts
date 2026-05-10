@@ -41,13 +41,13 @@ export function createDiscoveryTool(db: Database) {
   return tool({
     description: `Movie-discovery surface. Call this whenever the user asks for movies to watch, wants to compare a shortlist, or wants to finalize a movie-night pick. Extracts filters from the natural-language query and emits an A2UI surface progressively.
 
-Before calling, classify the user's referent. If they refer to movies already shown in this thread (e.g. "the top 3", "those", "compare", "pick one"), pass view="comparison" or view="night-plan" with IDs from the most recent prior result of this tool — do NOT call view="grid" first.
+Before calling, classify the user's referent. If they refer to movies already shown in this thread (e.g. "the top 3 in my watchlist", "compare those", "pick one"), pass view="comparison" or view="night-plan" with IDs from the most recent prior tool result that listed movies — \`discovery\`, \`watchlist_show\`, or \`review_show\`. Do NOT call view="grid" first.
 
 ${getCatalogPromptDescription()}
 
 Pick \`view: "comparison"\` when the user wants a side-by-side compare across a shortlist (>=2 movie ids) of already-discussed movies; pass \`shortlistMovieIds\` (the ids the user asked about) and optional \`comparisonCriteria\` (e.g., ["runtime", "mood", "group-safety"]). Pick \`view: "night-plan"\` when the user asks to pick one for tonight; pass \`pickedMovieId\`, optional \`backupMovieIds\`, and a short \`reason\`. Default to \`view: "grid"\` for fresh discovery queries.
 
-Movie id format: shortlistMovieIds, pickedMovieId, and backupMovieIds MUST be values from the \`id\` field (UUIDs like "550e8400-e29b-41d4-a716-446655440000") of movies returned by a prior discovery call. NEVER pass the \`tmdbId\` field (a small integer) — that identifier will not resolve. Never invent ids.`,
+Movie id format: shortlistMovieIds, pickedMovieId, and backupMovieIds MUST be values from the \`id\` field (UUIDs like "550e8400-e29b-41d4-a716-446655440000") of movies returned by a prior \`discovery\`, \`watchlist_show\`, or \`review_show\` call. NEVER pass the \`tmdbId\` field (a small integer) — that identifier will not resolve. Never invent ids.`,
     inputSchema: z.object({
       filters: discoveryFiltersSchema.optional(),
       view: z.string().default("grid"),

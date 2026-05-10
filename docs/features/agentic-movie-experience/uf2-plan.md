@@ -523,6 +523,132 @@ Existing patterns to follow when implementing each UF2 element. ⚪ = read-only 
 
 ---
 
+## 8. Post-implementation: LLM behavior issue & demo pivot
+
+### Symptom
+
+Browser test of the originally-spec'd flow fails:
+
+1. `feel-good comedy under 2h` → `discovery view=grid` with `{genres:["Comedy"], maxRuntime:120}` → comedy grid renders. ✅
+2. `compare the 3 best comedies` → expected: ONE `discovery view=comparison` call with comedy UUIDs from step 1. Actual: model issues a FRESH `discovery view=grid` with `{genres:["Comedy"]}` (drops `maxRuntime: 120`) → popularity grid flashes → then `view=comparison` against IDs from that new grid. User sees a comparison of three unrelated popular comedies.
+
+### Root cause
+
+Two layers down from the obvious "wiring" suspects (history replay, surface clearing, filter extraction):
+
+1. **Tool-result JSON is low-salience.** Comedy IDs live four levels deep inside `data.movies[*].id` of a `tool` role message. Models attend more to assistant-authored prose than to nested JSON when generating the next move. There is no plain-text breadcrumb in the conversation saying "I just showed you these N movies".
+2. **"The N best comedies" is a strong filter-extract trigger.** Even with prompt rules saying "use IDs from the most recent tool result", the noun + ranking pattern matches the well-trained "extract filters → call discovery" instinct so cleanly that explicit rules lose. This is a known LLM failure mode: prompt rules vs. trained patterns, patterns win when the input fits cleanly.
+
+The replay layer (`agent-run.ts:246-275`) is correct — verified end-to-end. The prior tool-call IS in the LLM's prompt. The model just doesn't ground in it.
+
+### Round 1 (shipped, commit `b53030f`) — prompt restructure
+
+System-prompt restructure: CONTEXT-ANCHOR rule first, then VIEW SELECTION, then FILTER EXTRACTION, plus an explicit SAME-TURN GUARD forbidding `grid → comparison` chains. Tool description in `discovery.ts` mirrors the rule.
+
+**Outcome**: no measurable behavior change in browser testing. Confirms the issue is at the model-attention layer, not the rule-priority layer.
+
+### Round 2 (shipped) — watchlist pivot (Plan C)
+
+Demo path becomes `watchlist_show → discovery view=comparison/night-plan`:
+
+- Different first tool (no filter params on `watchlist_show` → no misfire pattern).
+- Different surface ids — watchlist + comparison render side-by-side, no overwrite.
+- Real, motivated user flow — not a contrived demo prompt.
+
+Code changes: prompt-only.
+
+- `apps/api/src/services/agents/system-prompt.ts`: CONTEXT-ANCHOR broadened to "any prior tool result that listed movies — `discovery`, `watchlist_show`, or `review_show`".
+- `apps/api/src/features/tools/discovery.ts`: tool description mirrors the broadened source list.
+
+See updated `uf2-adaptive-view-layout.md` ("Demo flow & LLM-behavior caveat") for the demo script.
+
+### Deferred follow-up: Plan A (synthetic grid breadcrumb)
+
+Plan A would resurrect the `discovery view=grid → view=comparison` flow as a first-class path by giving the LLM a plain-text anchor for prior grid results. It is **deferred** because the watchlist pivot fully unblocks the UF2 demo and is more semantically meaningful. Plan A becomes worthwhile only if the grid → comparison flow needs to work reliably outside the demo context (e.g., production usage where users may not have a watchlist).
+
+#### Mechanism
+
+After every `discovery` tool call with `view: "grid"` and a non-empty `movies` array, the server persists a synthetic assistant chat message containing each movie's title, year, runtime, and **UUID inline as plain text**. On the next turn, when `start()` rebuilds history, the LLM sees this as a regular `assistant` message (not as a tool-result). Models weight assistant-authored prose higher than nested tool-result JSON — the IDs are now where the model actually looks.
+
+#### Implementation
+
+**File:** `apps/api/src/services/agents/agent-run.ts`
+
+In `buildOnFinish` (currently lines 168-199), after `recordStepToolCalls` for each step and before persisting `event.text`, call a new local helper:
+
+```ts
+async function persistGridBreadcrumb(
+  step: FinishStep,
+  sessionId: string,
+): Promise<void> {
+  for (const tc of step.toolCalls) {
+    if (tc.toolName !== "discovery") continue;
+    const tr = step.toolResults.find((r) => r.toolCallId === tc.toolCallId);
+    if (!tr) continue;
+    const out = tr.output as {
+      data?: {
+        view?: string;
+        movies?: Array<{
+          id: string;
+          title: string;
+          year?: number | null;
+          runtime?: number | null;
+        }>;
+      };
+    };
+    if (out?.data?.view !== "grid") continue;
+    const movies = out.data.movies ?? [];
+    if (movies.length === 0) continue;
+
+    const lines = movies.slice(0, 10).map((m, i) => {
+      const meta = [m.year, m.runtime ? `${m.runtime} min` : null]
+        .filter(Boolean)
+        .join(", ");
+      return `${i + 1}. ${m.title}${meta ? ` (${meta})` : ""} — id: ${m.id}`;
+    });
+    const content =
+      `Showed these ${movies.length} movies. For any "compare", "pick", ` +
+      `or "of these" follow-up, use the IDs below directly — do not ` +
+      `call discovery view="grid" again:\n${lines.join("\n")}`;
+
+    await chatMessages.create({ sessionId, role: "assistant", content });
+  }
+}
+```
+
+Wire-in: in `buildOnFinish`'s step loop, call `await persistGridBreadcrumb(step, sessionId)` immediately after `recordStepToolCalls(step, runDbId)`. Keep the existing `event.text` persist as-is — breadcrumbs and LLM-authored text co-exist in `chat_messages`.
+
+#### Tests required
+
+`apps/api/src/services/agents/agent-run.test.ts` — add 1 test:
+
+- Mock a `FinishStep` with a `discovery` tool call returning `view: "grid"` and a `movies: [{id, title, year, runtime}, ...]` array.
+- Run `buildOnFinish` (or extract `persistGridBreadcrumb` and test it directly).
+- Assert `chatMessages.create` was called with `role: "assistant"` and content containing each title and each id.
+
+Existing 135 api tests should remain green (the new code only adds an insert; no read paths change).
+
+#### Manual verification
+
+1. `pnpm db:up && pnpm db:migrate && pnpm dev`
+2. Browser: prompt `feel-good comedy under 2h`. Surface renders.
+3. SQL check (psql or drizzle-studio): query `chat_messages` for the latest session — expect a row with `role='assistant'` and content starting with `Showed these 10 movies`.
+4. Browser: prompt `compare the 3 best comedies`. DevTools Network → `/agent/run` SSE stream → count `TOOL_CALL_START` events for `discovery`. **Expected: 1**, with `view: "comparison"` and `shortlistMovieIds` matching 3 IDs from the breadcrumb.
+5. Regression: prompt `find me a thriller under 90 min` (fresh search) → still issues `view: "grid"` with the right filters. Breadcrumb does not suppress legitimate new searches.
+
+#### Risks / caveats of Plan A
+
+- **Stacking breadcrumbs.** If the user does grid → grid → compare, two breadcrumbs accumulate; the LLM might pick from the older one. Acceptable for v1; dedup would be a follow-up.
+- **Visual flash on later silent turns.** `movie-search.tsx`'s `lastAssistantText` fallback shows the latest assistant message when no surface is active. If a future turn produces neither a surface nor LLM text, the breadcrumb could render. Information-correct but visually weird; mitigation: rely on the LLM producing a real text reply on those turns.
+- **Token cost.** ~1 KB per grid call, accumulating across the session. Negligible for demo, monitor in production.
+- **Still LLM-dependent.** Stronger anchor, not a deterministic fix. If the model's filter-extract reflex still wins despite the breadcrumb, the only deterministic recourse is a server-side guard at the AG-UI stream layer (buffer + suppress same-turn `grid → comparison`) — not recommended; complex and only treats the symptom.
+
+#### Estimated effort
+
+~30 LOC + 1 test + 5 minutes manual verify. Half a day at worst with edge cases.
+
+---
+
 ## Unresolved questions
 
 *(none at time of writing — the four architectural choices were locked via grilling: comparison data lives at `/comparison`, night-plan at `/plan`, both renderers join via `/movies`; highlight API is module-level registry; comparison `< 2` ids falls back to grid + warning. Memory-driven view selection is explicitly UF3 scope.)*
