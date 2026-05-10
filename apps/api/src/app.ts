@@ -7,6 +7,7 @@ import { devAuth } from "./middleware/dev-auth.js";
 import { health } from "./features/health/route.js";
 import { movies } from "./features/movies/route.js";
 import { chat } from "./features/chat/route.js";
+import { pendingInterrupt } from "./features/chat/pending-interrupt-route.js";
 import { watchlist } from "./features/watchlist/route.js";
 import { reviews } from "./features/reviews/route.js";
 
@@ -29,6 +30,7 @@ app.route("/health", health);
 const api = new Hono<{ Variables: Variables }>();
 api.use("*", devAuth);
 api.route("/movies", movies);
+api.route("/chat/pending-interrupt", pendingInterrupt);
 api.route("/chat", chat);
 api.route("/watchlist", watchlist);
 api.route("/reviews", reviews);

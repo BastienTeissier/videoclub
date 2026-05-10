@@ -125,6 +125,7 @@ export function agentRunsRepository(db: Database) {
       const [row] = await db
         .select({
           id: toolCalls.id,
+          aiSdkCallId: toolCalls.aiSdkCallId,
           toolName: toolCalls.toolName,
           input: toolCalls.input,
           runId: toolCalls.runId,
