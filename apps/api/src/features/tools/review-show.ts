@@ -9,7 +9,7 @@ export function createReviewShowTool(db: Database, userId: string) {
 
   return tool({
     description:
-      "Show all of the user's reviews as a grid, sorted by most recently updated.",
+      "Show all of the user's reviews as a grid, sorted by most recently updated. Use ONLY when the user wants to see/browse their reviews. If the user wants to COMPARE or PICK from their reviews (e.g. 'compare the top 3 of my reviews', 'pick the highest-rated'), do not stop after this tool — chain into the `discovery` tool with view='comparison' or view='night-plan' in the same turn, using IDs from this tool's result.",
     needsApproval: false,
     inputSchema: z.object({}),
     execute: async () => {

@@ -10,7 +10,7 @@ export function createWatchlistShowTool(db: Database, userId: string) {
 
   return tool({
     description:
-      "Show the user's full watchlist as a poster grid, sorted by most recently added.",
+      "Show the user's full watchlist as a poster grid, sorted by most recently added. Use ONLY when the user wants to see/browse the watchlist itself. If the user wants to COMPARE or PICK from their watchlist (e.g. 'compare the top 3 in my watchlist', 'pick one from my watchlist'), do not stop after this tool — chain into the `discovery` tool with view='comparison' or view='night-plan' in the same turn, using IDs from this tool's result.",
     needsApproval: false,
     inputSchema: z.object({}),
     execute: async () => {
